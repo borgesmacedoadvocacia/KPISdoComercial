@@ -144,6 +144,9 @@
   .tdot{width:5px;height:5px;border-radius:50%;display:inline-block;flex-shrink:0}
   tfoot td{font-size:10px;color:var(--muted);border-top:1px solid var(--border)}
 
+  /* loading */
+  .loading-msg{color:var(--muted);font-size:12px;padding:20px 0;text-align:center}
+
   @media(max-width:720px){
     .hdr{padding:11px 16px;flex-direction:column;align-items:flex-start;gap:8px}
     .content{padding:14px 16px}
@@ -162,7 +165,7 @@
 <div class="hdr">
   <div>
     <h1>KPIs Comercial</h1>
-    <p id="hdr-sub">BM Advocacia &amp; Consultoria · 2026</p>
+    <p id="hdr-sub">BM Advocacia &amp; Consultoria · carregando…</p>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <button class="meta-btn" onclick="openMetas()" title="Configurar metas do mês atual">⚙ Metas</button>
@@ -177,7 +180,7 @@
 <div class="modal-overlay" id="modal-metas" onclick="if(event.target===this)closeMetas()">
   <div class="modal">
     <h2>⚙ Configurar Metas — <span id="modal-mes-nome"></span></h2>
-    <p>Ajuste as metas do mês atual. Os meses anteriores não serão afetados.</p>
+    <p>Ajuste as metas do mês selecionado. Os valores voltam ao original no próximo refresh.</p>
     <div class="metas-grid" id="metas-grid"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeMetas()">Cancelar</button>
@@ -188,7 +191,7 @@
 
 <!-- ══ TAB 1: MENSAL ══ -->
 <div id="tab-mensal" class="tab-content active">
-  <div class="mbar" id="mbar"></div>
+  <div class="mbar" id="mbar"><span class="mbar-lbl">Carregando…</span></div>
   <div class="content">
     <div class="notice" id="notice">
       📊 Mês em andamento — dados parciais até <span id="notice-data"></span>.
@@ -196,7 +199,7 @@
     </div>
     <div class="sstrip" id="sstrip"></div>
     <div class="sh">Volume de Leads</div>
-    <div class="kgrid" id="g-volume"></div>
+    <div class="kgrid" id="g-volume"><div class="loading-msg">⟳ Carregando…</div></div>
     <div class="sh">Resultados Comerciais</div>
     <div class="kgrid" id="g-results"></div>
     <div class="sh">Financeiro</div>
@@ -209,7 +212,7 @@
 <!-- ══ TAB 2: RESULTADO ANUAL ══ -->
 <div id="tab-anual" class="tab-content">
   <div class="content">
-    <div class="sh" style="margin-top:4px">Acumulado 2026 (Jan – Mai)</div>
+    <div class="sh" id="anual-sh" style="margin-top:4px">Acumulado 2026</div>
     <div class="anual-grid" id="anual-grid"></div>
 
     <div class="sh">Tabela Completa — Acumulado &amp; % da Meta por Mês</div>
@@ -224,553 +227,600 @@
 
 <script>
 // ════════════════════════════════════════════════════════════
-//  CONFIGURAÇÕES DO MÊS ATUAL (para meses em andamento)
+//  CONFIGURAÇÕES
 // ════════════════════════════════════════════════════════════
-const HOJE        = new Date();
-const MES_ATUAL   = 'Mai';
-const DIAS_MES    = 31;          // maio tem 31 dias
-const DIA_ATUAL   = 19;          // dia de hoje no mês
-const FATOR_PROJ  = DIAS_MES / DIA_ATUAL;  // ≈ 1.6316
+const SHEET_ID   = '1x6G-5tsHeEPqN850awNObJM9cpqTdui8j0RVEygJviQ';
+const ANO_SUFIXO = '26';
+const HOJE       = new Date();
+
+const MESES_ABBR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const MFULL = {
+  Jan:'Janeiro', Fev:'Fevereiro', Mar:'Março',    Abr:'Abril',
+  Mai:'Maio',    Jun:'Junho',     Jul:'Julho',     Ago:'Agosto',
+  Set:'Setembro',Out:'Outubro',   Nov:'Novembro',  Dez:'Dezembro'
+};
 
 // ════════════════════════════════════════════════════════════
-//  DADOS — verificados em 19/05/2026
-//
-//  Fontes primárias (IMPORTRANGE na planilha de KPIs):
-//   SDR (1o1UY…):
-//     Leads Meta Ads  → Produtos Juridicos [Mês/26]!D7
-//     Leads Abordados → SDR [Mês/26]!D22
-//     Leads Qualific. → SDR [Mês/26]!F22
-//     Reuniões        → SDR [Mês/26]!I22
-//   Clientes (1FWbG…) → MAIO!X26
-//   Faturamento (1fMbG…) → MAIO!X6
-//   DRE (1q-QO…) → DRE 2026!N49 (Investimento)
-//   Jan–Abr: aba Acumulado (GID 1199627183)
-//
-//  metaMensal = meta do mês completo
-//  projetado  = valor projetado para fim do mês (volume/financeiro)
-//  emAndamento = mês não encerrado
+//  DEFINIÇÕES DOS KPIs  (sem dados — apenas metadados)
 // ════════════════════════════════════════════════════════════
-
-const MESES = ['Jan','Fev','Mar','Abr','Mai'];
-const MFULL = {Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio'};
-
-// tipo de agregação anual: 'soma' | 'media' | 'calc'
-const KPIS = [
-  // ── VOLUME ─────────────────────────────────────────────
-  {
-    id:'leads_meta_ads', nome:'Leads (Meta Ads)',
-    grupo:'volume', fmt:'numero', dir:'maior', agr:'soma',
-    fonte:'SDR → Produtos Juridicos [Mês/26]!D7',
-    dados:{
-      Jan:{resultado:2248, metaMensal:2750, pct:81.75},
-      Fev:{resultado:1065, metaMensal:2750, pct:38.73},
-      Mar:{resultado:1294, metaMensal:2750, pct:47.05},
-      Abr:{resultado:1839, metaMensal:2750, pct:66.87},
-      Mai:{resultado:907,  metaMensal:1500, pct:98.66, projetado:1480, emAndamento:true},
-    }
-  },
-  {
-    id:'leads_abordados', nome:'Leads Abordados',
-    grupo:'volume', fmt:'numero', dir:'maior', agr:'soma',
-    fonte:'SDR → SDR [Mês/26]!D22',
-    dados:{
-      Jan:{resultado:1194, metaMensal:1200, pct:99.50},
-      Fev:{resultado:760,  metaMensal:1200, pct:63.33},
-      Mar:{resultado:728,  metaMensal:1200, pct:60.67},
-      Abr:{resultado:1161, metaMensal:1200, pct:96.75},
-      Mai:{resultado:489,  metaMensal:1200, pct:66.49, emAndamento:true},
-    }
-  },
-  {
-    id:'leads_qualificados', nome:'Leads Qualificados',
-    grupo:'volume', fmt:'numero', dir:'maior', agr:'soma',
-    fonte:'SDR → SDR [Mês/26]!F22',
-    dados:{
-      Jan:{resultado:136, metaMensal:840, pct:16.19},
-      Fev:{resultado:131, metaMensal:840, pct:15.60},
-      Mar:{resultado:330, metaMensal:840, pct:39.29},
-      Abr:{resultado:674, metaMensal:840, pct:80.24},
-      Mai:{resultado:396, metaMensal:184, pct:215.37, emAndamento:true},
-    }
-  },
-  // ── RESULTADOS ─────────────────────────────────────────
-  {
-    id:'reunioes', nome:'Reuniões Realizadas',
-    grupo:'results', fmt:'numero', dir:'maior', agr:'soma',
-    fonte:'SDR → SDR [Mês/26]!I22',
-    dados:{
-      Jan:{resultado:93, metaMensal:160, pct:58.13},
-      Fev:{resultado:76, metaMensal:160, pct:47.50},
-      Mar:{resultado:96, metaMensal:160, pct:60.00},
-      Abr:{resultado:85, metaMensal:160, pct:53.13},
-      Mai:{resultado:47, metaMensal:160, pct:76.68, emAndamento:true},
-    }
-  },
-  {
-    id:'clientes', nome:'Clientes Fechados',
-    grupo:'results', fmt:'numero', dir:'maior', agr:'soma',
-    fonte:'Clientes → MAIO!X26',
-    dados:{
-      Jan:{resultado:30, metaMensal:32, pct:93.75},
-      Fev:{resultado:36, metaMensal:32, pct:112.50},
-      Mar:{resultado:35, metaMensal:32, pct:109.38},
-      Abr:{resultado:39, metaMensal:32, pct:121.88},
-      Mai:{resultado:23, metaMensal:32, pct:117.27, emAndamento:true},
-    }
-  },
-  // ── FINANCEIRO ─────────────────────────────────────────
-  {
-    id:'faturamento', nome:'Faturamento',
-    grupo:'finance', fmt:'moeda', dir:'maior', agr:'soma',
-    fonte:'Faturamento → MAIO!X6',
-    dados:{
-      Jan:{resultado:69885.90,  metaMensal:80000, pct:87.36},
-      Fev:{resultado:110130.27, metaMensal:80000, pct:137.66},
-      Mar:{resultado:86516.59,  metaMensal:80000, pct:108.15},
-      Abr:{resultado:103280.10, metaMensal:80000, pct:129.10},
-      Mai:{resultado:57953.05,  metaMensal:80000, pct:118.19, emAndamento:true},
-    }
-  },
-  {
-    id:'ticket_medio', nome:'Ticket Médio',
-    grupo:'finance', fmt:'moeda', dir:'maior', agr:'media',
-    fonte:'Derivado: Faturamento ÷ Clientes',
-    dados:{
-      Jan:{resultado:2329.53, metaMensal:2500, pct:93.18},
-      Fev:{resultado:3059.17, metaMensal:2500, pct:122.37},
-      Mar:{resultado:2471.90, metaMensal:2500, pct:98.88},
-      Abr:{resultado:2648.21, metaMensal:2500, pct:105.93},
-      Mai:{resultado:2519.70, metaMensal:2500, pct:100.79, emAndamento:true},
-    }
-  },
-  {
-    id:'investimento', nome:'Investimento (Ads)',
-    grupo:'finance', fmt:'moeda', dir:'menor', agr:'soma',
-    fonte:'DRE → DRE 2026!N49',
-    dados:{
-      Jan:{resultado:20545.15, metaMensal:16000, pct:128.41},
-      Fev:{resultado:22916.84, metaMensal:16000, pct:143.23},
-      Mar:{resultado:30299.47, metaMensal:16000, pct:189.37},
-      Abr:{resultado:23575.29, metaMensal:16000, pct:147.35},
-      Mai:{resultado:15838.09, metaMensal:16000, pct:161.51, emAndamento:true},
-    }
-  },
-  {
-    id:'cac', nome:'CAC',
-    grupo:'finance', fmt:'moeda', dir:'menor', agr:'media',
-    fonte:'Derivado: Investimento ÷ Clientes',
-    dados:{
-      Jan:{resultado:684.84, metaMensal:500, pct:136.97},
-      Fev:{resultado:636.58, metaMensal:500, pct:127.32},
-      Mar:{resultado:865.70, metaMensal:500, pct:173.14},
-      Abr:{resultado:604.49, metaMensal:500, pct:120.90},
-      Mai:{resultado:688.61, metaMensal:500, pct:137.72, emAndamento:true},
-    }
-  },
-  // ── TAXAS ──────────────────────────────────────────────
-  {
-    id:'tx_reuniao_cliente', nome:'Conv. Reunião → Cliente',
-    grupo:'rates', fmt:'pct', dir:'maior', agr:'media',
-    fonte:'Derivado: Clientes ÷ Reuniões',
-    dados:{
-      Jan:{resultado:32.26, metaMensal:30, pct:107.53},
-      Fev:{resultado:47.37, metaMensal:30, pct:157.89},
-      Mar:{resultado:36.46, metaMensal:30, pct:121.53},
-      Abr:{resultado:45.88, metaMensal:30, pct:152.94},
-      Mai:{resultado:48.94, metaMensal:30, pct:244.68, emAndamento:true},
-    }
-  },
-  {
-    id:'tx_lead_reuniao', nome:'Conv. Lead → Reunião',
-    grupo:'rates', fmt:'pct', dir:'maior', agr:'media',
-    fonte:'Derivado: Reuniões ÷ Leads Abordados',
-    dados:{
-      Jan:{resultado:7.79,  metaMensal:12, pct:64.91},
-      Fev:{resultado:10.00, metaMensal:12, pct:83.33},
-      Mar:{resultado:13.19, metaMensal:12, pct:109.89},
-      Abr:{resultado:7.32,  metaMensal:12, pct:61.01},
-      Mai:{resultado:9.61,  metaMensal:12, pct:80.10, emAndamento:true},
-    }
-  },
-  {
-    id:'tx_lead_cliente', nome:'Conv. Lead → Cliente',
-    grupo:'rates', fmt:'pct', dir:'maior', agr:'media',
-    fonte:'Derivado: Clientes ÷ Leads Abordados',
-    dados:{
-      Jan:{resultado:2.51, metaMensal:2.5, pct:100.50},
-      Fev:{resultado:4.74, metaMensal:2.5, pct:189.47},
-      Mar:{resultado:4.81, metaMensal:2.5, pct:192.31},
-      Abr:{resultado:3.36, metaMensal:2.5, pct:134.37},
-      Mai:{resultado:4.70, metaMensal:2.5, pct:188.14, emAndamento:true},
-    }
-  },
-  {
-    id:'roi', nome:'ROI',
-    grupo:'rates', fmt:'mult', dir:'maior', agr:'calc',
-    fonte:'Derivado: Faturamento ÷ Investimento',
-    dados:{
-      Jan:{resultado:3.40, metaMensal:5, pct:68.03},
-      Fev:{resultado:4.81, metaMensal:5, pct:96.11},
-      Mar:{resultado:2.86, metaMensal:5, pct:57.11},
-      Abr:{resultado:4.38, metaMensal:5, pct:87.62},
-      Mai:{resultado:3.66, metaMensal:5, pct:73.18, emAndamento:true},
-    }
-  },
+const KPI_DEFS = [
+  { id:'leads_meta_ads',     nome:'Leads (Meta Ads)',        grupo:'volume',  fmt:'numero', dir:'maior', agr:'soma'  },
+  { id:'leads_abordados',    nome:'Leads Abordados',         grupo:'volume',  fmt:'numero', dir:'maior', agr:'soma'  },
+  { id:'leads_qualificados', nome:'Leads Qualificados',      grupo:'volume',  fmt:'numero', dir:'maior', agr:'soma'  },
+  { id:'reunioes',           nome:'Reuniões Realizadas',     grupo:'results', fmt:'numero', dir:'maior', agr:'soma'  },
+  { id:'clientes',           nome:'Clientes Fechados',       grupo:'results', fmt:'numero', dir:'maior', agr:'soma'  },
+  { id:'faturamento',        nome:'Faturamento',             grupo:'finance', fmt:'moeda',  dir:'maior', agr:'soma'  },
+  { id:'ticket_medio',       nome:'Ticket Médio',            grupo:'finance', fmt:'moeda',  dir:'maior', agr:'media' },
+  { id:'investimento',       nome:'Investimento (Ads)',      grupo:'finance', fmt:'moeda',  dir:'menor', agr:'soma'  },
+  { id:'cac',                nome:'CAC',                     grupo:'finance', fmt:'moeda',  dir:'menor', agr:'media' },
+  { id:'tx_reuniao_cliente', nome:'Conv. Reunião → Cliente', grupo:'rates',   fmt:'pct',    dir:'maior', agr:'media' },
+  { id:'tx_lead_reuniao',    nome:'Conv. Lead → Reunião',    grupo:'rates',   fmt:'pct',    dir:'maior', agr:'media' },
+  { id:'tx_lead_cliente',    nome:'Conv. Lead → Cliente',    grupo:'rates',   fmt:'pct',    dir:'maior', agr:'media' },
+  { id:'roi',                nome:'ROI',                     grupo:'rates',   fmt:'mult',   dir:'maior', agr:'calc'  },
 ];
 
 // ════════════════════════════════════════════════════════════
-//  HELPERS
+//  ESTADO GLOBAL
 // ════════════════════════════════════════════════════════════
-function fv(v, fmt, decimais) {
-  if(v===null||v===undefined) return '—';
-  const d2 = decimais!==undefined ? decimais : (fmt==='numero'?0:2);
+// DATA[mesAbbr] = { diasComputados, diasTotais, emAndamento, kpis:{id:{resultado,metaMensal,pct,projetado,emAndamento}} }
+let DATA               = {};
+let MESES_DISPONIVEIS  = [];
+let KPIS               = [];   // reconstruído após cada carga
+let mesSel             = null;
+let DIA_ATUAL          = 1;
+let DIAS_MES           = 30;
+let FATOR_PROJ         = 1;
+let evoCharts          = [];
+let pollingTimer       = null;
+let lastHash           = '';
+
+// ════════════════════════════════════════════════════════════
+//  ACESSO AO GOOGLE SHEETS (gviz/tq — sem API key)
+// ════════════════════════════════════════════════════════════
+function tabName(m) {
+  return 'Comercial - ' + MFULL[m] + '/' + ANO_SUFIXO;
+}
+
+// SELECT explícito garante índices fixos na resposta:
+//  col 0=B(indicador) 1=C(meta) 2=D(metaProp) 3=E(resultado) 4=F(%meta) 5=G(projetado) 6=I(label) 7=J(valor)
+function gvizUrl(m) {
+  var sheet = tabName(m);
+  var tq    = 'SELECT B,C,D,E,F,G,I,J';
+  return 'https://docs.google.com/spreadsheets/d/' + SHEET_ID +
+         '/gviz/tq?tqx=out:json&headers=0&sheet=' + encodeURIComponent(sheet) +
+         '&tq=' + encodeURIComponent(tq);
+}
+
+async function fetchTabData(m) {
+  try {
+    var resp = await fetch(gvizUrl(m));
+    var text = await resp.text();
+    var match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+    if (!match) return null;
+    var json = JSON.parse(match[1]);
+    if (json.status === 'error') return null;
+    return json.table;
+  } catch(e) { return null; }
+}
+
+// Normaliza texto para comparação (remove acentos, minúsculas)
+function norm(s) {
+  if (typeof s !== 'string') return '';
+  return s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+}
+
+// Mapeamento por texto do indicador (coluna B)
+const KPI_ID_MAP = {
+  'leads (meta ads)':                        'leads_meta_ads',
+  'leads abordados':                         'leads_abordados',
+  'leads qualificados':                      'leads_qualificados',
+  'reunioes':                                'reunioes',
+  'reunioes realizadas':                     'reunioes',
+  'clientes':                                'clientes',
+  'clientes fechados':                       'clientes',
+  'faturamento':                             'faturamento',
+  'ticket medio':                            'ticket_medio',
+  'investimento em trafego pago':            'investimento',
+  'investimento (ads)':                      'investimento',
+  'cac (meta ads)':                          'cac',
+  'cac':                                     'cac',
+  'tx. de conversao (reuniao x clientes)':   'tx_reuniao_cliente',
+  'tx. de conversao (leads x reunioes)':     'tx_lead_reuniao',
+  'tx. de conversao (leads x clientes)':     'tx_lead_cliente',
+  'roi':                                     'roi',
+};
+
+// headers=0 → linha 0 = planilha linha 1 (vazia)
+//             linha 1 = planilha linha 2 (cabeçalho PRODUTOS)
+//             linha 2 = planilha linha 3 (INDICADOR, META…)
+//             linha 3 = planilha linha 4 (Leads Orgânicos)
+//             linha 4 = planilha linha 5 (Leads Meta Ads)
+// Dias Computados fica na col I(6) da linha 1 (planilha linha 2) → rows[1][7]
+// Dias Totais     fica na col I(6) da linha 2 (planilha linha 3) → rows[2][7]
+function parseTable(table) {
+  if (!table || !table.rows || !table.rows.length) return null;
+  var rows = table.rows;
+
+  function v(r, c) {
+    var row = rows[r];
+    if (!row || !row.c) return null;
+    var cell = row.c[c];
+    return (cell && cell.v !== undefined) ? cell.v : null;
+  }
+
+  // Encontra dias computados/totais buscando pelo label na col 6 (I)
+  var diasComputados = null, diasTotais = null;
+  for (var i = 0; i < Math.min(rows.length, 6); i++) {
+    var label = norm('' + (v(i, 6) || ''));
+    if (label.includes('computados') || label.includes('computado')) diasComputados = v(i, 7);
+    if (label.includes('totais') || label.includes('total'))         diasTotais     = v(i, 7);
+  }
+  var emAndamento = (typeof diasComputados === 'number' && typeof diasTotais === 'number' && diasComputados < diasTotais);
+
+  var kpis = {};
+  rows.forEach(function(row) {
+    if (!row || !row.c) return;
+    var indicador = norm('' + (v(rows.indexOf(row), 0) || ''));
+    var kpiId     = KPI_ID_MAP[indicador];
+    if (!kpiId) return;
+
+    var def    = KPI_DEFS.find(function(d){ return d.id === kpiId; });
+    if (!def) return;
+
+    var ri = rows.indexOf(row);
+    var isPct  = def.fmt === 'pct';
+    var scale  = isPct ? 100 : 1;
+
+    var resultado  = v(ri, 3);
+    if (resultado === null || resultado === undefined) return;
+
+    var metaMensal = v(ri, 1);
+    var projetado  = v(ri, 5);
+    var pctRaw     = v(ri, 4);  // F: ratio (ex: 0.9866 = 98.66%)
+
+    kpis[kpiId] = {
+      resultado:  resultado  * scale,
+      metaMensal: (metaMensal !== null) ? metaMensal * scale : null,
+      projetado:  (projetado !== null && typeof projetado === 'number' && projetado !== 0) ? projetado * scale : null,
+      pct:        (pctRaw !== null && typeof pctRaw === 'number') ? pctRaw * 100 : null,
+      emAndamento: emAndamento,
+    };
+  });
+
+  if (!Object.keys(kpis).length) return null;
+  return { diasComputados: diasComputados, diasTotais: diasTotais, emAndamento: emAndamento, kpis: kpis };
+}
+
+// Reconstrói o array KPIS global com dados de todos os meses disponíveis
+function buildKPIS() {
+  KPIS = KPI_DEFS.map(function(def) {
+    var dados = {};
+    MESES_DISPONIVEIS.forEach(function(m) {
+      var d = DATA[m] && DATA[m].kpis && DATA[m].kpis[def.id];
+      if (d) dados[m] = d;
+    });
+    return Object.assign({}, def, { dados: dados });
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+//  CARREGAMENTO
+// ════════════════════════════════════════════════════════════
+async function loadMonth(m) {
+  var table = await fetchTabData(m);
+  if (!table) return false;
+  var parsed = parseTable(table);
+  if (!parsed) return false;
+  DATA[m] = parsed;
+  return true;
+}
+
+async function loadAllMonths() {
+  var mesAtualIdx  = HOJE.getMonth();  // 0-based
+  var mesesTentar  = MESES_ABBR.slice(0, mesAtualIdx + 1);
+
+  var promises = mesesTentar.map(function(m) {
+    return loadMonth(m).then(function(ok){ return { m: m, ok: ok }; });
+  });
+  var results = await Promise.allSettled(promises);
+
+  MESES_DISPONIVEIS = results
+    .filter(function(r){ return r.status === 'fulfilled' && r.value.ok; })
+    .map(function(r){ return r.value.m; });
+
+  if (!MESES_DISPONIVEIS.length) {
+    document.getElementById('g-volume').innerHTML =
+      '<div class="loading-msg">❌ Não foi possível carregar dados da planilha.<br>Verifique se a planilha está pública.</div>';
+    return;
+  }
+
+  buildKPIS();
+  mesSel = MESES_DISPONIVEIS[MESES_DISPONIVEIS.length - 1];
+  updateMesVars(mesSel);
+  lastHash = dataHash();
+
+  document.getElementById('hdr-sub').textContent =
+    'BM Advocacia & Consultoria · Atualizado ' +
+    HOJE.toLocaleString('pt-BR', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
+
+  initMbar();
+  renderMensal();
+  startPolling();
+}
+
+function updateMesVars(m) {
+  var d = DATA[m];
+  DIA_ATUAL  = (d && d.diasComputados) ? d.diasComputados : HOJE.getDate();
+  DIAS_MES   = (d && d.diasTotais)     ? d.diasTotais     : 30;
+  FATOR_PROJ = DIAS_MES / (DIA_ATUAL || 1);
+}
+
+// ════════════════════════════════════════════════════════════
+//  AUTO-REFRESH (polling a cada 5 min + visibilitychange)
+// ════════════════════════════════════════════════════════════
+function dataHash() {
+  if (!mesSel || !DATA[mesSel]) return '';
+  return JSON.stringify(DATA[mesSel].kpis);
+}
+
+async function pollSheet() {
+  var mesAtualIdx = HOJE.getMonth();
+  var mesAtual    = MESES_ABBR[mesAtualIdx];
+  var ok = await loadMonth(mesAtual);
+  if (!ok) return;
+
+  // Adiciona mês atual à lista se ainda não estava
+  if (MESES_DISPONIVEIS.indexOf(mesAtual) === -1) {
+    MESES_DISPONIVEIS.push(mesAtual);
+  }
+
+  buildKPIS();
+
+  var newHash = dataHash();
+  if (newHash === lastHash) return;  // sem mudança, não re-renderiza
+
+  lastHash = newHash;
+  if (mesSel === mesAtual) updateMesVars(mesSel);
+
+  var agora = new Date();
+  document.getElementById('hdr-sub').textContent =
+    'BM Advocacia & Consultoria · Atualizado ' +
+    agora.toLocaleString('pt-BR', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
+
+  initMbar();
+  renderMensal();
+}
+
+function startPolling() {
+  if (pollingTimer) clearInterval(pollingTimer);
+  pollingTimer = setInterval(pollSheet, 5 * 60 * 1000);  // a cada 5 min
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') pollSheet();
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+//  HELPERS DE FORMATAÇÃO
+// ════════════════════════════════════════════════════════════
+function fv(v, fmt) {
+  if (v === null || v === undefined) return '—';
   switch(fmt) {
     case 'numero': return Math.round(v).toLocaleString('pt-BR');
-    case 'moeda':  return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-    case 'pct':    return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
-    case 'mult':   return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'×';
+    case 'moeda':  return 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+    case 'pct':    return v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + '%';
+    case 'mult':   return v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + '×';
     default:       return String(v);
   }
 }
-function fm(v, fmt) {   // meta: sem centavos para moeda
-  if(v===null||v===undefined) return '—';
+function fm(v, fmt) {
+  if (v === null || v === undefined) return '—';
   switch(fmt) {
-    case 'numero': return v.toLocaleString('pt-BR',{maximumFractionDigits:0});
-    case 'moeda':  return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
-    case 'pct':    return v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
-    case 'mult':   return v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})+'×';
+    case 'numero': return v.toLocaleString('pt-BR', {maximumFractionDigits:0});
+    case 'moeda':  return 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0});
+    case 'pct':    return v.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
+    case 'mult':   return v.toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0}) + '×';
     default:       return String(v);
   }
 }
 function st(pct, dir) {
-  if(dir==='maior') { return pct>=100?'g':pct>=70?'y':'r'; }
-  else              { return pct<=100?'g':pct<=130?'y':'r'; }
+  if (dir === 'maior') return pct >= 100 ? 'g' : pct >= 70 ? 'y' : 'r';
+  else                 return pct <= 100 ? 'g' : pct <= 130 ? 'y' : 'r';
 }
-function stFull(pct, dir) { const s=st(pct,dir); return s==='g'?'green':s==='y'?'yellow':'red'; }
+function stFull(pct, dir) { var s = st(pct, dir); return s==='g'?'green':s==='y'?'yellow':'red'; }
 function barW(pct, dir) {
-  if(dir==='maior') return Math.min(100,pct)+'%';
-  return Math.min(100,Math.max(0,(100/pct)*100))+'%';
+  if (dir === 'maior') return Math.min(100, pct) + '%';
+  return Math.min(100, Math.max(0, (100 / pct) * 100)) + '%';
 }
-
-// tem projeção significativa?
-function temProj(kpi) { return ['soma'].includes(kpi.agr) && kpi.fmt !== 'pct' && kpi.fmt !== 'mult'; }
-
+function temProj(kpi) { return kpi.agr === 'soma' && kpi.fmt !== 'pct' && kpi.fmt !== 'mult'; }
 
 // ════════════════════════════════════════════════════════════
-//  ESTADO
-// ════════════════════════════════════════════════════════════
-let mesSel='Mai', evoCharts=[];
-
-// ════════════════════════════════════════════════════════════
-//  RENDER: MENSAL
+//  RENDER: VISÃO MENSAL
 // ════════════════════════════════════════════════════════════
 function renderMensal() {
-  const m = mesSel;
-  const andamento = KPIS.some(k=>k.dados[m]?.emAndamento);
-  document.getElementById('notice').style.display = andamento?'block':'none';
-  document.getElementById('notice-data').textContent =
-    DIA_ATUAL+'/'+String(MESES.indexOf(m)+1).padStart(2,'0')+'/2026';
+  var m = mesSel;
+  if (!m || !KPIS.length) return;
+
+  var andamento = KPIS.some(function(k){ return k.dados[m] && k.dados[m].emAndamento; });
+  document.getElementById('notice').style.display = andamento ? 'block' : 'none';
+  if (andamento) {
+    document.getElementById('notice-data').textContent =
+      DIA_ATUAL + '/' + String(MESES_ABBR.indexOf(m) + 1).padStart(2, '0') + '/20' + ANO_SUFIXO;
+  }
 
   // Summary strip
-  const fat = KPIS.find(k=>k.id==='faturamento').dados[m]||{};
-  const cli = KPIS.find(k=>k.id==='clientes').dados[m]||{};
-  const roi = KPIS.find(k=>k.id==='roi').dados[m]||{};
-  const inv = KPIS.find(k=>k.id==='investimento').dados[m]||{};
-  const okN = KPIS.filter(k=>{const d=k.dados[m];return d&&st(d.pct,k.dir)==='g';}).length;
+  function kd(id) { var k = KPIS.find(function(x){ return x.id === id; }); return (k && k.dados[m]) || {}; }
+  var fat  = kd('faturamento');
+  var cli  = kd('clientes');
+  var roi  = kd('roi');
+  var inv  = kd('investimento');
+  var okN  = KPIS.filter(function(k){ var d=k.dados[m]; return d && d.pct !== null && st(d.pct, k.dir) === 'g'; }).length;
 
-  document.getElementById('sstrip').innerHTML = `
-    <div class="scard">
-      <div class="sl">Faturamento</div>
-      <div class="sv" style="font-size:16px">${fv(fat.resultado,'moeda')}</div>
-      <div class="ss">Meta: ${fm(fat.metaMensal,'moeda')}</div>
-      <div class="ss c-${st(fat.pct||0,'maior')}" style="font-weight:600">${(fat.pct||0).toFixed(1)}% da meta${fat.emAndamento?' · proj.':''}</div>
-    </div>
-    <div class="scard">
-      <div class="sl">Clientes</div>
-      <div class="sv">${cli.resultado||'—'}</div>
-      <div class="ss">Meta: ${cli.metaMensal||'—'}</div>
-      <div class="ss c-${st(cli.pct||0,'maior')}" style="font-weight:600">${(cli.pct||0).toFixed(1)}%${cli.emAndamento?' · proj.':''}</div>
-    </div>
-    <div class="scard">
-      <div class="sl">ROI</div>
-      <div class="sv">${(roi.resultado||0).toFixed(2)}×</div>
-      <div class="ss">Meta: 5×</div>
-      <div class="ss c-${st(roi.pct||0,'maior')}" style="font-weight:600">${(roi.pct||0).toFixed(1)}%</div>
-    </div>
-    <div class="scard">
-      <div class="sl">Investimento</div>
-      <div class="sv" style="font-size:15px">${fv(inv.resultado,'moeda')}</div>
-      <div class="ss">Orçamento: ${fm(inv.metaMensal,'moeda')}</div>
-      <div class="ss c-${st(inv.pct||0,'menor')}" style="font-weight:600">${(inv.pct||0).toFixed(1)}% do orçamento</div>
-    </div>
-    <div class="scard">
-      <div class="sl">KPIs no verde</div>
-      <div class="sv" style="color:var(--green)">${okN}<span style="font-size:14px;color:var(--muted)">/${KPIS.length}</span></div>
-      <div class="ss">atingindo a meta</div>
-    </div>`;
+  document.getElementById('sstrip').innerHTML =
+    '<div class="scard">' +
+      '<div class="sl">Faturamento</div>' +
+      '<div class="sv" style="font-size:16px">' + fv(fat.resultado, 'moeda') + '</div>' +
+      '<div class="ss">Meta: ' + fm(fat.metaMensal, 'moeda') + '</div>' +
+      '<div class="ss c-' + st(fat.pct||0,'maior') + '" style="font-weight:600">' + (fat.pct||0).toFixed(1) + '%' + (fat.emAndamento?' · em curso':'') + '</div>' +
+    '</div>' +
+    '<div class="scard">' +
+      '<div class="sl">Clientes</div>' +
+      '<div class="sv">' + (cli.resultado !== undefined ? Math.round(cli.resultado) : '—') + '</div>' +
+      '<div class="ss">Meta: ' + (cli.metaMensal !== undefined ? Math.round(cli.metaMensal) : '—') + '</div>' +
+      '<div class="ss c-' + st(cli.pct||0,'maior') + '" style="font-weight:600">' + (cli.pct||0).toFixed(1) + '%</div>' +
+    '</div>' +
+    '<div class="scard">' +
+      '<div class="sl">ROI</div>' +
+      '<div class="sv">' + ((roi.resultado||0)).toFixed(2) + '×</div>' +
+      '<div class="ss">Meta: 5×</div>' +
+      '<div class="ss c-' + st(roi.pct||0,'maior') + '" style="font-weight:600">' + (roi.pct||0).toFixed(1) + '%</div>' +
+    '</div>' +
+    '<div class="scard">' +
+      '<div class="sl">Investimento</div>' +
+      '<div class="sv" style="font-size:15px">' + fv(inv.resultado, 'moeda') + '</div>' +
+      '<div class="ss">Orçamento: ' + fm(inv.metaMensal, 'moeda') + '</div>' +
+      '<div class="ss c-' + st(inv.pct||0,'menor') + '" style="font-weight:600">' + (inv.pct||0).toFixed(1) + '% do orçamento</div>' +
+    '</div>' +
+    '<div class="scard">' +
+      '<div class="sl">KPIs no verde</div>' +
+      '<div class="sv" style="color:var(--green)">' + okN + '<span style="font-size:14px;color:var(--muted)">/' + KPIS.length + '</span></div>' +
+      '<div class="ss">atingindo a meta</div>' +
+    '</div>';
 
-  // KPI groups
-  const gs = {volume:'g-volume',results:'g-results',finance:'g-finance',rates:'g-rates'};
-  for(const [g,gid] of Object.entries(gs)) {
-    document.getElementById(gid).innerHTML =
-      KPIS.filter(k=>k.grupo===g).map(kpi=>buildCard(kpi,m)).join('');
-  }
+  // KPI grids
+  var gs = {volume:'g-volume', results:'g-results', finance:'g-finance', rates:'g-rates'};
+  Object.keys(gs).forEach(function(g) {
+    document.getElementById(gs[g]).innerHTML =
+      KPIS.filter(function(k){ return k.grupo === g; }).map(function(kpi){ return buildCard(kpi, m); }).join('');
+  });
 }
 
 function buildCard(kpi, m) {
-  const d = kpi.dados[m];
-  if(!d) return `<div class="kcard"><div class="kname">${kpi.nome}</div><div style="color:var(--muted);margin-top:8px">Sem dados</div></div>`;
+  var d = kpi.dados[m];
+  if (!d) return '<div class="kcard"><div class="kname">' + kpi.nome + '</div><div style="color:var(--muted);margin-top:8px">Sem dados</div></div>';
 
-  const s    = st(d.pct, kpi.dir);
+  var s         = st(d.pct || 0, kpi.dir);
+  var haProj    = d.emAndamento && temProj(kpi);
+  var proj      = d.projetado !== null ? d.projetado : haProj ? Math.round(d.resultado * FATOR_PROJ) : null;
+  var temMetaP  = d.emAndamento && kpi.agr === 'soma';
+  var metaProp  = temMetaP ? parseFloat((d.metaMensal * (DIA_ATUAL / DIAS_MES)).toFixed(2)) : null;
+  var pctReal   = (d.resultado && d.metaMensal) ? parseFloat((d.resultado / d.metaMensal * 100).toFixed(2)) : 0;
+  var pctProp   = metaProp ? parseFloat((d.resultado / metaProp * 100).toFixed(2)) : null;
+  var pctProj   = (proj && d.metaMensal) ? parseFloat((proj / d.metaMensal * 100).toFixed(2)) : null;
 
-  // Calcular projeção e meta proporcional para meses em andamento
-  const haProj = d.emAndamento && temProj(kpi);
-  const proj = d.projetado !== undefined
-    ? d.projetado
-    : haProj ? Math.round(d.resultado * FATOR_PROJ) : null;
-  // Meta proporcional só faz sentido para KPIs de volume/soma (não taxas, CAC, ticket médio, ROI)
-  const temMetaProp = d.emAndamento && kpi.agr === 'soma';
-  const metaProp = temMetaProp
-    ? parseFloat((d.metaMensal * (DIA_ATUAL / DIAS_MES)).toFixed(2))
-    : null;
-  const pctReal = parseFloat((d.resultado / d.metaMensal * 100).toFixed(2));
-  const pctProp = metaProp ? parseFloat((d.resultado / metaProp * 100).toFixed(2)) : null;
-  const pctProj = proj ? parseFloat((proj / d.metaMensal * 100).toFixed(2)) : null;
-
-  // Linhas de detalhe
-  let details = '';
-
-  if(d.emAndamento) {
-    // resultado MTD
-    details += `<div class="krow"><span class="lbl">Realizado (MTD)</span><span class="val">${fv(d.resultado,kpi.fmt)}</span></div>`;
-    // projeção (só para KPIs de volume/financeiro)
-    if(haProj && proj!==null) {
-      const sProj = st(pctProj||0, kpi.dir);
-      details += `<div class="krow"><span class="lbl">Projeção (mês)</span><span class="val proj">${fv(proj,kpi.fmt)}</span></div>`;
-    }
-    // meta proporcional
-    if(metaProp!==null) {
-      details += `<div class="krow"><span class="lbl">Meta proporcional (${DIA_ATUAL}d)</span><span class="val">${fm(metaProp,kpi.fmt)}</span></div>`;
-    }
-    // meta mensal
-    details += `<div class="krow"><span class="lbl">Meta mensal</span><span class="val">${fm(d.metaMensal,kpi.fmt)}</span></div>`;
+  var details = '';
+  if (d.emAndamento) {
+    details += '<div class="krow"><span class="lbl">Realizado (MTD)</span><span class="val">' + fv(d.resultado, kpi.fmt) + '</span></div>';
+    if (haProj && proj !== null)
+      details += '<div class="krow"><span class="lbl">Projeção (mês)</span><span class="val proj">' + fv(proj, kpi.fmt) + '</span></div>';
+    if (metaProp !== null)
+      details += '<div class="krow"><span class="lbl">Meta proporcional (' + DIA_ATUAL + 'd)</span><span class="val">' + fm(metaProp, kpi.fmt) + '</span></div>';
+    details += '<div class="krow"><span class="lbl">Meta mensal</span><span class="val">' + fm(d.metaMensal, kpi.fmt) + '</span></div>';
   } else {
-    details += `<div class="krow"><span class="lbl">Meta mensal</span><span class="val">${fm(d.metaMensal,kpi.fmt)}</span></div>`;
+    details += '<div class="krow"><span class="lbl">Meta mensal</span><span class="val">' + fm(d.metaMensal, kpi.fmt) + '</span></div>';
   }
 
-  // Bloco de percentuais
-  let pctBlock = '';
-  if(d.emAndamento) {
-    // % real vs meta proporcional
-    if(pctProp!==null) {
-      const sProp = st(pctProp, kpi.dir);
-      pctBlock += `<div class="kpct-row"><span class="plbl">vs meta proporcional</span><span class="kpct-main c-${sProp}">${pctProp.toFixed(1)}%</span></div>`;
+  var pctBlock = '';
+  if (d.emAndamento) {
+    if (pctProp !== null) {
+      var sProp = st(pctProp, kpi.dir);
+      pctBlock += '<div class="kpct-row"><span class="plbl">vs meta proporcional</span><span class="kpct-main c-' + sProp + '">' + pctProp.toFixed(1) + '%</span></div>';
     }
-    // % projeção vs meta mensal
-    if(haProj && pctProj!==null) {
-      const sP2 = st(pctProj, kpi.dir);
-      pctBlock += `<div class="kpct-row"><span class="plbl">projeção vs meta</span><span class="kpct-main c-${sP2}">${pctProj.toFixed(1)}%</span></div>`;
+    if (haProj && pctProj !== null) {
+      var sP2 = st(pctProj, kpi.dir);
+      pctBlock += '<div class="kpct-row"><span class="plbl">projeção vs meta</span><span class="kpct-main c-' + sP2 + '">' + pctProj.toFixed(1) + '%</span></div>';
     } else {
-      // para taxas/derivados, mostrar % real vs meta
-      const sR = st(pctReal, kpi.dir);
-      pctBlock += `<div class="kpct-row"><span class="plbl">vs meta mensal</span><span class="kpct-main c-${sR}">${pctReal.toFixed(1)}%</span></div>`;
+      var sR = st(pctReal, kpi.dir);
+      pctBlock += '<div class="kpct-row"><span class="plbl">vs meta mensal</span><span class="kpct-main c-' + sR + '">' + pctReal.toFixed(1) + '%</span></div>';
     }
   } else {
-    pctBlock = `<div class="kpct-row"><span class="plbl">vs meta</span><span class="kpct-main c-${s}">${d.pct.toFixed(1)}%</span></div>`;
+    pctBlock = '<div class="kpct-row"><span class="plbl">vs meta</span><span class="kpct-main c-' + s + '">' + (d.pct||0).toFixed(1) + '%</span></div>';
   }
 
-  const barPct = d.emAndamento && pctProj!==null ? pctProj : pctProp!==null ? pctProp : d.pct;
-  const barS   = st(barPct, kpi.dir);
+  var barPct = d.emAndamento && pctProj !== null ? pctProj : pctProp !== null ? pctProp : (d.pct || 0);
+  var barS   = st(barPct, kpi.dir);
 
-  return `
-    <div class="kcard" title="Fonte: ${kpi.fonte}">
-      <div class="kc-head">
-        <span class="kdot dot-${s}"></span>
-        <span class="kname">${kpi.nome}</span>
-        ${d.emAndamento?'<span class="kbadge">Em curso</span>':''}
-      </div>
-      <div class="kresult">${fv(d.resultado,kpi.fmt)}</div>
-      <div class="kdetails">${details}</div>
-      ${pctBlock}
-      <div class="pbar-bg"><div class="pbar-fill bar-${barS}" style="width:${barW(barPct,kpi.dir)}"></div></div>
-    </div>`;
+  return '<div class="kcard">' +
+    '<div class="kc-head">' +
+      '<span class="kdot dot-' + s + '"></span>' +
+      '<span class="kname">' + kpi.nome + '</span>' +
+      (d.emAndamento ? '<span class="kbadge">Em curso</span>' : '') +
+    '</div>' +
+    '<div class="kresult">' + fv(d.resultado, kpi.fmt) + '</div>' +
+    '<div class="kdetails">' + details + '</div>' +
+    pctBlock +
+    '<div class="pbar-bg"><div class="pbar-fill bar-' + barS + '" style="width:' + barW(barPct, kpi.dir) + '"></div></div>' +
+  '</div>';
 }
 
 // ════════════════════════════════════════════════════════════
-//  RENDER: ANUAL
+//  RENDER: RESULTADO ANUAL
 // ════════════════════════════════════════════════════════════
-
-// Calcula acumulado anual de um KPI
 function calcAnual(kpi) {
-  const meses = MESES.filter(m=>kpi.dados[m]);
-  if(!meses.length) return null;
+  var meses = MESES_DISPONIVEIS.filter(function(m){ return kpi.dados[m]; });
+  if (!meses.length) return null;
 
-  let soma=0, metaSoma=0, pctSoma=0, n=0;
-  meses.forEach(m=>{
-    const d=kpi.dados[m];
-    soma    += d.resultado;
-    metaSoma+= d.metaMensal;
-    pctSoma += d.pct;
+  var soma=0, metaSoma=0, pctSoma=0, n=0;
+  meses.forEach(function(m) {
+    var d = kpi.dados[m];
+    soma     += d.resultado;
+    metaSoma += d.metaMensal || 0;
+    pctSoma  += d.pct || 0;
     n++;
   });
-  const media=soma/n, mediaPct=pctSoma/n;
+  var media = soma / n, mediaPct = pctSoma / n;
 
-  let valorAnual, metaAnual;
-  if(kpi.agr==='soma')  { valorAnual=soma;  metaAnual=metaSoma; }
-  else if(kpi.agr==='media') { valorAnual=media; metaAnual=metaSoma/n; }
+  var valorAnual, metaAnual;
+  if (kpi.agr === 'soma')       { valorAnual = soma;  metaAnual = metaSoma; }
+  else if (kpi.agr === 'media') { valorAnual = media; metaAnual = metaSoma / n; }
   else { // 'calc' = ROI
-    const fat = KPIS.find(k=>k.id==='faturamento');
-    const inv = KPIS.find(k=>k.id==='investimento');
-    const tf = MESES.filter(m=>fat.dados[m]).reduce((a,m)=>a+fat.dados[m].resultado,0);
-    const ti = MESES.filter(m=>inv.dados[m]).reduce((a,m)=>a+inv.dados[m].resultado,0);
-    valorAnual = tf/ti;
-    metaAnual  = kpi.dados[MESES[0]].metaMensal;
+    var fat = KPIS.find(function(k){ return k.id === 'faturamento'; });
+    var inv = KPIS.find(function(k){ return k.id === 'investimento'; });
+    var tf = MESES_DISPONIVEIS.filter(function(m){ return fat.dados[m]; }).reduce(function(a,m){ return a + fat.dados[m].resultado; }, 0);
+    var ti = MESES_DISPONIVEIS.filter(function(m){ return inv.dados[m]; }).reduce(function(a,m){ return a + inv.dados[m].resultado; }, 0);
+    valorAnual = ti > 0 ? tf / ti : 0;
+    metaAnual  = (kpi.dados[meses[0]] || {}).metaMensal || 1;
   }
 
-  const pctAnual = valorAnual/metaAnual*100;
-  const melhor = meses.reduce((a,m)=>kpi.dados[m].pct>kpi.dados[a].pct?m:a);
-  const pior   = meses.reduce((a,m)=>kpi.dados[m].pct<kpi.dados[a].pct?m:a);
-  return { valorAnual, metaAnual, mediaPct, pctAnual, melhor, pior };
+  var pctAnual = metaAnual > 0 ? valorAnual / metaAnual * 100 : 0;
+  var melhor = meses.reduce(function(a,m){ return (kpi.dados[m].pct||0) > (kpi.dados[a].pct||0) ? m : a; });
+  var pior   = meses.reduce(function(a,m){ return (kpi.dados[m].pct||0) < (kpi.dados[a].pct||0) ? m : a; });
+  return { valorAnual:valorAnual, metaAnual:metaAnual, mediaPct:mediaPct, pctAnual:pctAnual, melhor:melhor, pior:pior };
 }
 
 function renderAnual() {
-  const anualCards = [
-    { kpiId:'faturamento',  label:'Faturamento Total' },
-    { kpiId:'investimento', label:'Investimento Total' },
-    { kpiId:'clientes',     label:'Clientes Totais' },
-    { kpiId:'cac',          label:'CAC Médio' },
-    { kpiId:'roi',          label:'ROI Médio' },
-  ];
+  if (!MESES_DISPONIVEIS.length) return;
+  var from = (MFULL[MESES_DISPONIVEIS[0]] || '').slice(0,3);
+  var to   = (MFULL[MESES_DISPONIVEIS[MESES_DISPONIVEIS.length-1]] || '').slice(0,3);
+  document.getElementById('anual-sh').textContent = 'Acumulado 20' + ANO_SUFIXO + ' (' + from + ' – ' + to + ')';
 
-  document.getElementById('anual-grid').innerHTML = anualCards.map(({kpiId,label})=>{
-    const kpi = KPIS.find(k=>k.id===kpiId);
-    const a   = calcAnual(kpi);
-    if(!a) return '';
-    const s = st(a.mediaPct, kpi.dir);
-    return '<div class="anual-card">'
-      +'<div class="al">'+label+'</div>'
-      +'<div class="av">'+fv(a.valorAnual,kpi.fmt)+'</div>'
-      +'<div class="as">Meta: '+fm(a.metaAnual,kpi.fmt)+'</div>'
-      +'<div class="apct c-'+s+'">'+a.mediaPct.toFixed(1)+'% média</div>'
-      +'</div>';
+  var cards = [
+    {id:'faturamento',  label:'Faturamento Total'},
+    {id:'investimento', label:'Investimento Total'},
+    {id:'clientes',     label:'Clientes Totais'},
+    {id:'cac',          label:'CAC Médio'},
+    {id:'roi',          label:'ROI Médio'},
+  ];
+  document.getElementById('anual-grid').innerHTML = cards.map(function(c) {
+    var kpi = KPIS.find(function(k){ return k.id === c.id; });
+    var a   = kpi && calcAnual(kpi);
+    if (!a) return '';
+    var s = st(a.mediaPct, kpi.dir);
+    return '<div class="anual-card">' +
+      '<div class="al">' + c.label + '</div>' +
+      '<div class="av">' + fv(a.valorAnual, kpi.fmt) + '</div>' +
+      '<div class="as">Meta: ' + fm(a.metaAnual, kpi.fmt) + '</div>' +
+      '<div class="apct c-' + s + '">' + a.mediaPct.toFixed(1) + '% média</div>' +
+    '</div>';
   }).join('');
 
-  let tbl = '<thead><tr><th>KPI</th>'
-    +MESES.map(m=>'<th class="r">'+MFULL[m].slice(0,3)+'</th>').join('')
-    +'<th class="r">Acumulado</th><th class="r">Média/mês</th><th class="r">% Médio</th>'
-    +'<th class="r">Melhor</th><th class="r">Pior</th>'
-    +'</tr></thead><tbody>';
+  var tbl = '<thead><tr><th>KPI</th>' +
+    MESES_DISPONIVEIS.map(function(m){ return '<th class="r">' + (MFULL[m]||m).slice(0,3) + '</th>'; }).join('') +
+    '<th class="r">Acumulado</th><th class="r">Média/mês</th><th class="r">% Médio</th>' +
+    '<th class="r">Melhor</th><th class="r">Pior</th></tr></thead><tbody>';
 
-  KPIS.forEach(kpi=>{
-    const a = calcAnual(kpi);
-    if(!a) return;
-    const aS = st(a.mediaPct,kpi.dir);
-    const mesesComDados = MESES.filter(m=>kpi.dados[m]);
-    const mediaRes = mesesComDados.reduce((acc,m)=>acc+kpi.dados[m].resultado,0)/mesesComDados.length;
-    tbl+='<tr><td class="kn">'+kpi.nome+'</td>';
-    MESES.forEach(m=>{
-      const d=kpi.dados[m];
-      if(!d){ tbl+='<td class="r" style="color:var(--muted)">—</td>'; return; }
-      const and=d.emAndamento?'*':'';
-      const s=stFull(d.pct,kpi.dir);
-      tbl+='<td class="r"><span class="tpct">'
-        +'<span class="tdot" style="background:var(--'+s+')"></span>'
-        +fv(d.resultado,kpi.fmt)+and
-        +'</span></td>';
+  KPIS.forEach(function(kpi) {
+    var a = calcAnual(kpi);
+    if (!a) return;
+    var mesesComDados = MESES_DISPONIVEIS.filter(function(m){ return kpi.dados[m]; });
+    var mediaRes = mesesComDados.reduce(function(acc,m){ return acc + kpi.dados[m].resultado; }, 0) / mesesComDados.length;
+    var aS = st(a.mediaPct, kpi.dir);
+    tbl += '<tr><td class="kn">' + kpi.nome + '</td>';
+    MESES_DISPONIVEIS.forEach(function(m) {
+      var d = kpi.dados[m];
+      if (!d) { tbl += '<td class="r" style="color:var(--muted)">—</td>'; return; }
+      var and = d.emAndamento ? '*' : '';
+      var sf  = stFull(d.pct||0, kpi.dir);
+      tbl += '<td class="r"><span class="tpct"><span class="tdot" style="background:var(--' + sf + ')"></span>' + fv(d.resultado, kpi.fmt) + and + '</span></td>';
     });
-    tbl+='<td class="r"><strong>'+fv(a.valorAnual,kpi.fmt)+'</strong></td>'
-      +'<td class="r" style="font-weight:600">'+fv(mediaRes,kpi.fmt)+'</td>'
-      +'<td class="r"><span class="tpct c-'+aS+'"><span class="tdot" style="background:var(--'
-      +stFull(a.mediaPct,kpi.dir)+')"></span>'+a.mediaPct.toFixed(1)+'%</span></td>'
-      +'<td class="r" style="color:var(--green);font-size:11px">'+MFULL[a.melhor].slice(0,3)
-      +'<br><span style="color:var(--muted)">'+fv(kpi.dados[a.melhor].resultado,kpi.fmt)+'</span></td>'
-      +'<td class="r" style="color:var(--red);font-size:11px">'+MFULL[a.pior].slice(0,3)
-      +'<br><span style="color:var(--muted)">'+fv(kpi.dados[a.pior].resultado,kpi.fmt)+'</span></td>'
-      +'</tr>';
+    tbl += '<td class="r"><strong>' + fv(a.valorAnual, kpi.fmt) + '</strong></td>' +
+      '<td class="r" style="font-weight:600">' + fv(mediaRes, kpi.fmt) + '</td>' +
+      '<td class="r"><span class="tpct c-' + aS + '"><span class="tdot" style="background:var(--' + stFull(a.mediaPct,kpi.dir) + ')"></span>' + a.mediaPct.toFixed(1) + '%</span></td>' +
+      '<td class="r" style="color:var(--green);font-size:11px">' + (MFULL[a.melhor]||a.melhor).slice(0,3) +
+        '<br><span style="color:var(--muted)">' + fv(kpi.dados[a.melhor].resultado, kpi.fmt) + '</span></td>' +
+      '<td class="r" style="color:var(--red);font-size:11px">' + (MFULL[a.pior]||a.pior).slice(0,3) +
+        '<br><span style="color:var(--muted)">' + fv(kpi.dados[a.pior].resultado, kpi.fmt) + '</span></td>' +
+    '</tr>';
   });
-  tbl+='</tbody><tfoot><tr><td colspan="'+(5+MESES.length)
-    +'">* Mês em andamento — percentual baseado na projeção ao ritmo atual.</td></tr></tfoot>';
+  tbl += '</tbody><tfoot><tr><td colspan="' + (5 + MESES_DISPONIVEIS.length) +
+    '">* Mês em andamento — percentual baseado na projeção ao ritmo atual.</td></tr></tfoot>';
   document.getElementById('anual-table').innerHTML = tbl;
 }
 
 function renderEvo() {
-  // Destruir gráficos anteriores
-  evoCharts.forEach(c=>c.destroy());
-  evoCharts=[];
-  const container = document.getElementById('evo-charts');
-  container.innerHTML='';
+  evoCharts.forEach(function(c){ c.destroy(); });
+  evoCharts = [];
+  var container = document.getElementById('evo-charts');
+  container.innerHTML = '';
+  if (!MESES_DISPONIVEIS.length) return;
 
-  const labels = MESES.map(m=>MFULL[m]);
+  var labels = MESES_DISPONIVEIS.map(function(m){ return MFULL[m] || m; });
+  var from   = (MFULL[MESES_DISPONIVEIS[0]]||MESES_DISPONIVEIS[0]).slice(0,3);
+  var to     = (MFULL[MESES_DISPONIVEIS[MESES_DISPONIVEIS.length-1]]||MESES_DISPONIVEIS[MESES_DISPONIVEIS.length-1]).slice(0,3);
 
-  KPIS.forEach(kpi=>{
-    const pcts  = MESES.map(m=>kpi.dados[m]?.pct??null);
-    const res   = MESES.map(m=>kpi.dados[m]?.resultado??null);
-    const metas = MESES.map(m=>kpi.dados[m]?.metaMensal??null);
-    const proj  = MESES.map(m=>{
-      const d=kpi.dados[m];
-      if(!d?.emAndamento||!temProj(kpi)) return null;
-      return d.projetado ?? Math.round(d.resultado*FATOR_PROJ);
+  KPIS.forEach(function(kpi) {
+    var pcts  = MESES_DISPONIVEIS.map(function(m){ return kpi.dados[m] ? (kpi.dados[m].pct||null) : null; });
+    var res   = MESES_DISPONIVEIS.map(function(m){ return kpi.dados[m] ? kpi.dados[m].resultado : null; });
+    var metas = MESES_DISPONIVEIS.map(function(m){ return kpi.dados[m] ? kpi.dados[m].metaMensal : null; });
+    var proj  = MESES_DISPONIVEIS.map(function(m) {
+      var d = kpi.dados[m];
+      if (!d || !d.emAndamento || !temProj(kpi)) return null;
+      return d.projetado !== null ? d.projetado : Math.round(d.resultado * FATOR_PROJ);
     });
 
-    const ptColors = pcts.map(p=>p===null?'transparent':
-      st(p,kpi.dir)==='g'?'#16a34a':st(p,kpi.dir)==='y'?'#ca8a04':'#dc2626');
+    var ptColors = pcts.map(function(p) {
+      if (p === null) return 'transparent';
+      return st(p, kpi.dir) === 'g' ? '#16a34a' : st(p, kpi.dir) === 'y' ? '#ca8a04' : '#dc2626';
+    });
 
-    const box = document.createElement('div');
-    box.className='chart-box';
-    box.style.marginBottom='14px';
-    const canvas = document.createElement('canvas');
-    canvas.height=90;
+    var box    = document.createElement('div');
+    box.className = 'chart-box';
+    box.style.marginBottom = '14px';
+    var canvas = document.createElement('canvas');
+    canvas.height = 90;
     box.appendChild(canvas);
     container.appendChild(box);
 
-    const datasets = [
-      {
-        label:'% da Meta', data:pcts, borderColor:'#1e40af',
-        backgroundColor:'rgba(30,64,175,.07)', borderWidth:2,
-        pointBackgroundColor:ptColors, pointBorderColor:ptColors,
-        pointRadius:5, pointHoverRadius:7, tension:.35, fill:true,
-        yAxisID:'yPct', spanGaps:true
-      },
-      {
-        label:'Resultado', data:res, borderColor:'#d4d4d4',
-        borderDash:[5,4], borderWidth:1.5, pointBackgroundColor:'#aaa',
-        pointRadius:3, tension:.35, fill:false, yAxisID:'yRes', spanGaps:true
-      },
-      {
-        label:'Meta Mensal', data:metas, borderColor:'#f97316',
-        borderDash:[3,3], borderWidth:1.5, pointRadius:0,
-        tension:0, fill:false, yAxisID:'yRes', spanGaps:true
-      }
+    var datasets = [
+      { label:'% da Meta', data:pcts, borderColor:'#1e40af', backgroundColor:'rgba(30,64,175,.07)',
+        borderWidth:2, pointBackgroundColor:ptColors, pointBorderColor:ptColors,
+        pointRadius:5, pointHoverRadius:7, tension:.35, fill:true, yAxisID:'yPct', spanGaps:true },
+      { label:'Resultado', data:res, borderColor:'#d4d4d4', borderDash:[5,4],
+        borderWidth:1.5, pointBackgroundColor:'#aaa', pointRadius:3,
+        tension:.35, fill:false, yAxisID:'yRes', spanGaps:true },
+      { label:'Meta Mensal', data:metas, borderColor:'#f97316', borderDash:[3,3],
+        borderWidth:1.5, pointRadius:0, tension:0, fill:false, yAxisID:'yRes', spanGaps:true },
     ];
-    if(proj.some(v=>v!==null)) {
-      datasets.push({
-        label:'Projeção', data:proj, borderColor:'#1e40af',
-        borderDash:[2,2], borderWidth:1.5, pointRadius:4,
-        pointStyle:'triangle', tension:.2, fill:false, yAxisID:'yRes', spanGaps:true
-      });
+    if (proj.some(function(v){ return v !== null; })) {
+      datasets.push({ label:'Projeção', data:proj, borderColor:'#1e40af', borderDash:[2,2],
+        borderWidth:1.5, pointRadius:4, pointStyle:'triangle',
+        tension:.2, fill:false, yAxisID:'yRes', spanGaps:true });
     }
 
-    const chart = new Chart(canvas.getContext('2d'), {
-      type:'line', data:{labels, datasets},
+    var chart = new Chart(canvas.getContext('2d'), {
+      type:'line', data:{ labels:labels, datasets:datasets },
       options:{
         responsive:true,
-        interaction:{mode:'index',intersect:false},
+        interaction:{ mode:'index', intersect:false },
         plugins:{
-          legend:{position:'top',labels:{font:{size:10},usePointStyle:true,boxWidth:7,padding:12}},
-          title:{display:true,text:kpi.nome+' — Evolução Jan–Mai 2026',font:{size:12,weight:'600'},color:'#1c1c1c',padding:{bottom:10}},
-          tooltip:{callbacks:{
-            label(ctx){
-              if(ctx.datasetIndex===0) return ' '+(ctx.parsed.y||0).toFixed(1)+'% da meta';
-              if(ctx.datasetIndex===1) return ' Resultado: '+fv(ctx.parsed.y,kpi.fmt);
-              if(ctx.datasetIndex===2) return ' Meta: '+fm(ctx.parsed.y,kpi.fmt);
-              return ' Projeção: '+fv(ctx.parsed.y,kpi.fmt);
-            }
-          }}
+          legend:{ position:'top', labels:{ font:{size:10}, usePointStyle:true, boxWidth:7, padding:12 } },
+          title:{ display:true, text:kpi.nome + ' — Evolução ' + from + '–' + to + ' 20' + ANO_SUFIXO,
+            font:{size:12,weight:'600'}, color:'#1c1c1c', padding:{bottom:10} },
+          tooltip:{ callbacks:{ label:function(ctx) {
+            if (ctx.datasetIndex===0) return ' ' + (ctx.parsed.y||0).toFixed(1) + '% da meta';
+            if (ctx.datasetIndex===1) return ' Resultado: ' + fv(ctx.parsed.y, kpi.fmt);
+            if (ctx.datasetIndex===2) return ' Meta: ' + fm(ctx.parsed.y, kpi.fmt);
+            return ' Projeção: ' + fv(ctx.parsed.y, kpi.fmt);
+          }}}
         },
         scales:{
-          yPct:{type:'linear',position:'left',title:{display:true,text:'% da Meta',font:{size:10},color:'#737373'},ticks:{callback:v=>v+'%',font:{size:10}},grid:{color:'#f0f0ee'}},
-          yRes:{type:'linear',position:'right',title:{display:true,text:'Resultado',font:{size:10},color:'#737373'},ticks:{callback:v=>fv(v,kpi.fmt),font:{size:10}},grid:{drawOnChartArea:false}},
-          x:{ticks:{font:{size:10}},grid:{color:'#f0f0ee'}}
+          yPct:{ type:'linear', position:'left',
+            title:{display:true,text:'% da Meta',font:{size:10},color:'#737373'},
+            ticks:{callback:function(v){ return v+'%'; },font:{size:10}}, grid:{color:'#f0f0ee'} },
+          yRes:{ type:'linear', position:'right',
+            title:{display:true,text:'Resultado',font:{size:10},color:'#737373'},
+            ticks:{callback:function(v){ return fv(v,kpi.fmt); },font:{size:10}}, grid:{drawOnChartArea:false} },
+          x:{ ticks:{font:{size:10}}, grid:{color:'#f0f0ee'} }
         }
       }
     });
@@ -778,80 +828,85 @@ function renderEvo() {
   });
 }
 
+// ════════════════════════════════════════════════════════════
+//  UI — month bar, tab switching
+// ════════════════════════════════════════════════════════════
 function initMbar() {
   document.getElementById('mbar').innerHTML =
-    '<span class="mbar-lbl">Mês:</span>'+
-    MESES.map(m=>'<button class="m-btn'+(m===mesSel?' active':'')+'" onclick="selMes(\''+m+'\',this)">'+MFULL[m]+'</button>').join('');
+    '<span class="mbar-lbl">Mês:</span>' +
+    MESES_DISPONIVEIS.map(function(m) {
+      return '<button class="m-btn' + (m === mesSel ? ' active' : '') +
+             '" onclick="selMes(\'' + m + '\',this)">' + (MFULL[m]||m) + '</button>';
+    }).join('');
 }
-function selMes(m,btn) {
-  mesSel=m;
-  document.querySelectorAll('.m-btn').forEach(b=>b.classList.remove('active'));
+
+function selMes(m, btn) {
+  mesSel = m;
+  updateMesVars(m);
+  document.querySelectorAll('.m-btn').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
   renderMensal();
 }
-function switchTab(t,btn) {
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+
+function switchTab(t, btn) {
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
-  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
-  document.getElementById('tab-'+t).classList.add('active');
-  if(t==='anual'){ renderAnual(); renderEvo(); }
+  document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
+  document.getElementById('tab-' + t).classList.add('active');
+  if (t === 'anual') { renderAnual(); renderEvo(); }
 }
-document.getElementById('hdr-sub').textContent =
-  'BM Advocacia & Consultoria · Atualizado '+
-  HOJE.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
 
 // ════════════════════════════════════════════════════════════
-//  MODAL — CONFIGURAR METAS DO MÊS ATUAL
+//  MODAL — CONFIGURAR METAS
 // ════════════════════════════════════════════════════════════
-const GRUPOS_LABEL = {volume:'Volume de Leads', results:'Resultados Comerciais', finance:'Financeiro', rates:'Taxas de Conversão'};
-const GRUPOS_ORDER = ['volume','results','finance','rates'];
+var GRUPOS_LABEL = {volume:'Volume de Leads', results:'Resultados Comerciais', finance:'Financeiro', rates:'Taxas de Conversão'};
+var GRUPOS_ORDER = ['volume','results','finance','rates'];
 
 function openMetas() {
-  document.getElementById('modal-mes-nome').textContent = MFULL[MES_ATUAL];
-  const grid = document.getElementById('metas-grid');
-  let html = '';
-  GRUPOS_ORDER.forEach(grupo=>{
-    const kpisGrupo = KPIS.filter(k=>k.grupo===grupo);
-    if(!kpisGrupo.length) return;
-    html += `<div class="meta-sep">${GRUPOS_LABEL[grupo]}</div>`;
-    kpisGrupo.forEach(kpi=>{
-      const meta = kpi.dados[MES_ATUAL]?.metaMensal ?? '';
-      const hint = kpi.fmt==='moeda'?'R$':kpi.fmt==='pct'?'%':kpi.fmt==='mult'?'×':'un.';
-      html += `<div class="meta-field">
-        <label>${kpi.nome} <span style="font-weight:400;color:var(--muted)">(${hint})</span></label>
-        <input type="number" id="meta-${kpi.id}" value="${meta}" step="any" min="0">
-      </div>`;
+  if (!mesSel) return;
+  document.getElementById('modal-mes-nome').textContent = MFULL[mesSel] || mesSel;
+  var html = '';
+  GRUPOS_ORDER.forEach(function(grupo) {
+    var kpisG = KPIS.filter(function(k){ return k.grupo === grupo; });
+    if (!kpisG.length) return;
+    html += '<div class="meta-sep">' + GRUPOS_LABEL[grupo] + '</div>';
+    kpisG.forEach(function(kpi) {
+      var meta = (kpi.dados[mesSel] || {}).metaMensal || '';
+      var hint = kpi.fmt==='moeda'?'R$':kpi.fmt==='pct'?'%':kpi.fmt==='mult'?'×':'un.';
+      html += '<div class="meta-field">' +
+        '<label>' + kpi.nome + ' <span style="font-weight:400;color:var(--muted)">(' + hint + ')</span></label>' +
+        '<input type="number" id="meta-' + kpi.id + '" value="' + meta + '" step="any" min="0">' +
+      '</div>';
     });
   });
-  grid.innerHTML = html;
+  document.getElementById('metas-grid').innerHTML = html;
   document.getElementById('modal-metas').classList.add('open');
 }
+
 function closeMetas() {
   document.getElementById('modal-metas').classList.remove('open');
 }
+
 function salvarMetas() {
-  KPIS.forEach(kpi=>{
-    const inp = document.getElementById('meta-'+kpi.id);
-    if(!inp) return;
-    const val = parseFloat(inp.value);
-    if(isNaN(val)||val<=0) return;
-    if(!kpi.dados[MES_ATUAL]) kpi.dados[MES_ATUAL]={};
-    kpi.dados[MES_ATUAL].metaMensal = val;
-    // recalcular pct com o novo valor
-    if(kpi.dados[MES_ATUAL].resultado!==undefined) {
-      kpi.dados[MES_ATUAL].pct = parseFloat((kpi.dados[MES_ATUAL].resultado / val * 100).toFixed(2));
+  KPIS.forEach(function(kpi) {
+    var inp = document.getElementById('meta-' + kpi.id);
+    if (!inp) return;
+    var val = parseFloat(inp.value);
+    if (isNaN(val) || val <= 0) return;
+    if (!kpi.dados[mesSel]) kpi.dados[mesSel] = {};
+    kpi.dados[mesSel].metaMensal = val;
+    if (kpi.dados[mesSel].resultado !== undefined && val > 0) {
+      kpi.dados[mesSel].pct = parseFloat((kpi.dados[mesSel].resultado / val * 100).toFixed(2));
     }
   });
   closeMetas();
   renderMensal();
 }
 
-document.getElementById('hdr-sub').textContent =
-  'BM Advocacia & Consultoria · Atualizado '+
-  HOJE.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
-
-initMbar();
-renderMensal();
+// ════════════════════════════════════════════════════════════
+//  INICIAR
+// ════════════════════════════════════════════════════════════
+loadAllMonths();
 </script>
 </body>
 </html>
