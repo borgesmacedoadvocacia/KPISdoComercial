@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPIs Comercial · BM Advocacia</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f5f3;
+    --card: #ffffff;
+    --border: #e5e5e3;
+    --text: #1c1c1c;
+    --muted: #737373;
+    --green: #16a34a;
+    --yellow: #ca8a04;
+    --red: #dc2626;
+    --accent: #1e40af;
+    --blue-lt: #eff6ff;
+    --radius: 10px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.45}
+
+  /* ── HEADER ── */
+  .hdr{background:var(--card);border-bottom:1px solid var(--border);padding:13px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30}
+  .hdr h1{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .hdr p{font-size:11px;color:var(--muted);margin-top:1px}
+  .tabs{display:flex;gap:2px}
+  .tab-btn{padding:6px 15px;border:none;background:none;cursor:pointer;font-size:12px;color:var(--muted);border-radius:6px;transition:background .15s,color .15s}
+  .tab-btn:hover{background:#f0f0ee;color:var(--text)}
+  .tab-btn.active{background:var(--accent);color:#fff;font-weight:500}
+
+  /* ── MONTH BAR ── */
+  .mbar{background:var(--card);border-bottom:1px solid var(--border);padding:9px 24px;display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none}
+  .mbar::-webkit-scrollbar{display:none}
+  .mbar-lbl{font-size:11px;color:var(--muted);font-weight:500;margin-right:2px;white-space:nowrap}
+  .m-btn{padding:4px 14px;border-radius:20px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;white-space:nowrap}
+  .m-btn:hover:not(.active){border-color:var(--accent);color:var(--accent)}
+  .m-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
+
+  /* ── CONTENT ── */
+  .content{padding:18px 24px;max-width:1280px;margin:0 auto}
+
+  /* ── NOTICE ── */
+  .notice{background:var(--blue-lt);border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;font-size:12px;color:var(--accent);margin-bottom:16px;display:none}
+
+  /* ── SUMMARY STRIP ── */
+  .sstrip{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px}
+  .scard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px}
+  .scard .sl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .scard .sv{font-size:20px;font-weight:700;margin-top:4px;letter-spacing:-.02em;line-height:1.1}
+  .scard .ss{font-size:11px;color:var(--muted);margin-top:3px}
+
+  /* ── SECTION HEADER ── */
+  .sh{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 9px}
+
+  /* ── KPI GRID ── */
+  .kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px;margin-bottom:4px}
+
+  /* ── KPI CARD ── */
+  .kcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;display:flex;flex-direction:column;transition:box-shadow .15s}
+  .kcard:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}
+
+  .kc-head{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+  .kdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .kname{font-size:11px;color:var(--muted);font-weight:500;flex:1;line-height:1.3}
+  .kbadge{font-size:9px;padding:2px 6px;border-radius:4px;background:var(--blue-lt);color:var(--accent);font-weight:600;white-space:nowrap}
+
+  .kresult{font-size:22px;font-weight:700;letter-spacing:-.03em;line-height:1;margin-bottom:9px}
+
+  /* detail rows */
+  .kdetails{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+  .krow{display:flex;justify-content:space-between;align-items:baseline;font-size:11px}
+  .krow .lbl{color:var(--muted)}
+  .krow .val{font-weight:600}
+  .krow .val.proj{color:var(--accent)}
+  .krow .val.ok{color:var(--green)}
+  .krow .val.warn{color:var(--yellow)}
+  .krow .val.bad{color:var(--red)}
+
+  /* pct row */
+  .kpct-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:11px}
+  .kpct-row .plbl{color:var(--muted)}
+  .kpct-main{font-size:13px;font-weight:700}
+  .kpct-secondary{font-size:11px;color:var(--muted);margin-top:1px}
+
+  .pbar-bg{height:3px;background:#e9e9e9;border-radius:2px;margin-bottom:8px;overflow:hidden}
+  .pbar-fill{height:100%;border-radius:2px;transition:width .4s}
+
+  /* status colors */
+  .c-g{color:var(--green)}.c-y{color:var(--yellow)}.c-r{color:var(--red)}
+  .dot-g{background:var(--green)}.dot-y{background:var(--yellow)}.dot-r{background:var(--red)}
+  .bar-g{background:var(--green)}.bar-y{background:var(--yellow)}.bar-r{background:var(--red)}
+
+  /* ── TAB CONTENT ── */
+  .tab-content{display:none}
+  .tab-content.active{display:block}
+
+  /* ── ANNUAL TAB ── */
+  .anual-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:10px;margin-bottom:20px}
+  .anual-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+  .anual-card .al{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .anual-card .av{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-top:5px}
+  .anual-card .as{font-size:11px;color:var(--muted);margin-top:2px}
+  .anual-card .apct{font-size:12px;font-weight:600;margin-top:4px}
+
+  /* chart box */
+  .chart-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:18px}
+  .evo-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .evo-sel{padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);background:var(--card);cursor:pointer;min-width:230px}
+
+  /* ── MODAL METAS ── */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;align-items:center;justify-content:center}
+  .modal-overlay.open{display:flex}
+  .modal{background:var(--card);border-radius:14px;padding:24px 28px;max-width:520px;width:94%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.18)}
+  .modal h2{font-size:15px;font-weight:700;margin-bottom:4px}
+  .modal p{font-size:11px;color:var(--muted);margin-bottom:18px}
+  .metas-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+  .meta-field label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px}
+  .meta-field input{width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;font-family:inherit;color:var(--text);background:var(--bg);outline:none;transition:border-color .15s}
+  .meta-field input:focus{border-color:var(--accent)}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+  .btn{padding:8px 18px;border-radius:7px;border:none;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#1e3a8a}
+  .btn-secondary{background:#f0f0ee;color:var(--text)}
+  .btn-secondary:hover{background:#e5e5e3}
+  .meta-sep{grid-column:1/-1;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding-top:6px;border-top:1px solid var(--border);margin-top:4px}
+  .meta-btn{padding:6px 13px;border:1px solid var(--border);border-radius:7px;background:var(--card);cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s}
+  .meta-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* tables */
+  .tbl-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{padding:8px 12px;text-align:left;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:#fafaf8;border-bottom:1px solid var(--border)}
+  th.r{text-align:right}
+  td{padding:8px 12px;border-bottom:1px solid #f0f0ee}
+  td.r{text-align:right;font-weight:500}
+  td.kn{font-weight:600}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#fafaf8}
+  .tpct{display:inline-flex;align-items:center;gap:3px;font-weight:600}
+  .tdot{width:5px;height:5px;border-radius:50%;display:inline-block;flex-shrink:0}
+  tfoot td{font-size:10px;color:var(--muted);border-top:1px solid var(--border)}
+
+  @media(max-width:720px){
+    .hdr{padding:11px 16px;flex-direction:column;align-items:flex-start;gap:8px}
+    .content{padding:14px 16px}
+    .sstrip{grid-template-columns:1fr 1fr}
+    .kgrid{grid-template-columns:1fr 1fr}
+  }
+  @media(max-width:440px){
+    .kgrid{grid-template-columns:1fr}
+    .sstrip{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div>
+    <h1>KPIs Comercial</h1>
+    <p id="hdr-sub">BM Advocacia &amp; Consultoria · 2026</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="meta-btn" onclick="openMetas()" title="Configurar metas do mês atual">⚙ Metas</button>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('mensal',this)">Visão Mensal</button>
+      <button class="tab-btn" onclick="switchTab('anual',this)">Resultado Anual</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL METAS ══ -->
+<div class="modal-overlay" id="modal-metas" onclick="if(event.target===this)closeMetas()">
+  <div class="modal">
+    <h2>⚙ Configurar Metas — <span id="modal-mes-nome"></span></h2>
+    <p>Ajuste as metas do mês atual. Os meses anteriores não serão afetados.</p>
+    <div class="metas-grid" id="metas-grid"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeMetas()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarMetas()">Salvar metas</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TAB 1: MENSAL ══ -->
+<div id="tab-mensal" class="tab-content active">
+  <div class="mbar" id="mbar"></div>
+  <div class="content">
+    <div class="notice" id="notice">
+      📊 Mês em andamento — dados parciais até <span id="notice-data"></span>.
+      Projeção calculada pelo ritmo atual do mês.
+    </div>
+    <div class="sstrip" id="sstrip"></div>
+    <div class="sh">Volume de Leads</div>
+    <div class="kgrid" id="g-volume"></div>
+    <div class="sh">Resultados Comerciais</div>
+    <div class="kgrid" id="g-results"></div>
+    <div class="sh">Financeiro</div>
+    <div class="kgrid" id="g-finance"></div>
+    <div class="sh">Taxas de Conversão</div>
+    <div class="kgrid" id="g-rates"></div>
+  </div>
+</div>
+
+<!-- ══ TAB 2: RESULTADO ANUAL ══ -->
+<div id="tab-anual" class="tab-content">
+  <div class="content">
+    <div class="sh" style="margin-top:4px">Acumulado 2026 (Jan – Mai)</div>
+    <div class="anual-grid" id="anual-grid"></div>
+
+    <div class="sh">Tabela Completa — Acumulado &amp; % da Meta por Mês</div>
+    <div class="tbl-wrap" style="margin-bottom:20px">
+      <table id="anual-table"></table>
+    </div>
+
+    <div class="sh">Evolução por KPI</div>
+    <div id="evo-charts"></div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  CONFIGURAÇÕES DO MÊS ATUAL (para meses em andamento)
+// ════════════════════════════════════════════════════════════
+const HOJE        = new Date();
+const MES_ATUAL   = 'Mai';
+const DIAS_MES    = 31;          // maio tem 31 dias
+const DIA_ATUAL   = 19;          // dia de hoje no mês
+const FATOR_PROJ  = DIAS_MES / DIA_ATUAL;  // ≈ 1.6316
+
+// ════════════════════════════════════════════════════════════
+//  DADOS — verificados em 19/05/2026
+//
+//  Fontes primárias (IMPORTRANGE na planilha de KPIs):
+//   SDR (1o1UY…):
+//     Leads Meta Ads  → Produtos Juridicos [Mês/26]!D7
+//     Leads Abordados → SDR [Mês/26]!D22
+//     Leads Qualific. → SDR [Mês/26]!F22
+//     Reuniões        → SDR [Mês/26]!I22
+//   Clientes (1FWbG…) → MAIO!X26
+//   Faturamento (1fMbG…) → MAIO!X6
+//   DRE (1q-QO…) → DRE 2026!N49 (Investimento)
+//   Jan–Abr: aba Acumulado (GID 1199627183)
+//
+//  metaMensal = meta do mês completo
+//  projetado  = valor projetado para fim do mês (volume/financeiro)
+//  emAndamento = mês não encerrado
+// ════════════════════════════════════════════════════════════
+
+const MESES = ['Jan','Fev','Mar','Abr','Mai'];
+const MFULL = {Jan:'Janeiro',Fev:'Fevereiro',Mar:'Março',Abr:'Abril',Mai:'Maio'};
+
+// tipo de agregação anual: 'soma' | 'media' | 'calc'
+const KPIS = [
+  // ── VOLUME ─────────────────────────────────────────────
+  {
+    id:'leads_meta_ads', nome:'Leads (Meta Ads)',
+    grupo:'volume', fmt:'numero', dir:'maior', agr:'soma',
+    fonte:'SDR → Produtos Juridicos [Mês/26]!D7',
+    dados:{
+      Jan:{resultado:2248, metaMensal:2750, pct:81.75},
+      Fev:{resultado:1065, metaMensal:2750, pct:38.73},
+      Mar:{resultado:1294, metaMensal:2750, pct:47.05},
+      Abr:{resultado:1839, metaMensal:2750, pct:66.87},
+      Mai:{resultado:907,  metaMensal:1500, pct:98.66, projetado:1480, emAndamento:true},
+    }
+  },
+  {
+    id:'leads_abordados', nome:'Leads Abordados',
+    grupo:'volume', fmt:'numero', dir:'maior', agr:'soma',
+    fonte:'SDR → SDR [Mês/26]!D22',
+    dados:{
+      Jan:{resultado:1194, metaMensal:1200, pct:99.50},
+      Fev:{resultado:760,  metaMensal:1200, pct:63.33},
+      Mar:{resultado:728,  metaMensal:1200, pct:60.67},
+      Abr:{resultado:1161, metaMensal:1200, pct:96.75},
+      Mai:{resultado:489,  metaMensal:1200, pct:66.49, emAndamento:true},
+    }
+  },
+  {
+    id:'leads_qualificados', nome:'Leads Qualificados',
+    grupo:'volume', fmt:'numero', dir:'maior', agr:'soma',
+    fonte:'SDR → SDR [Mês/26]!F22',
+    dados:{
+      Jan:{resultado:136, metaMensal:840, pct:16.19},
+      Fev:{resultado:131, metaMensal:840, pct:15.60},
+      Mar:{resultado:330, metaMensal:840, pct:39.29},
+      Abr:{resultado:674, metaMensal:840, pct:80.24},
+      Mai:{resultado:396, metaMensal:184, pct:215.37, emAndamento:true},
+    }
+  },
+  // ── RESULTADOS ─────────────────────────────────────────
+  {
+    id:'reunioes', nome:'Reuniões Realizadas',
+    grupo:'results', fmt:'numero', dir:'maior', agr:'soma',
+    fonte:'SDR → SDR [Mês/26]!I22',
+    dados:{
+      Jan:{resultado:93, metaMensal:160, pct:58.13},
+      Fev:{resultado:76, metaMensal:160, pct:47.50},
+      Mar:{resultado:96, metaMensal:160, pct:60.00},
+      Abr:{resultado:85, metaMensal:160, pct:53.13},
+      Mai:{resultado:47, metaMensal:160, pct:76.68, emAndamento:true},
+    }
+  },
+  {
+    id:'clientes', nome:'Clientes Fechados',
+    grupo:'results', fmt:'numero', dir:'maior', agr:'soma',
+    fonte:'Clientes → MAIO!X26',
+    dados:{
+      Jan:{resultado:30, metaMensal:32, pct:93.75},
+      Fev:{resultado:36, metaMensal:32, pct:112.50},
+      Mar:{resultado:35, metaMensal:32, pct:109.38},
+      Abr:{resultado:39, metaMensal:32, pct:121.88},
+      Mai:{resultado:23, metaMensal:32, pct:117.27, emAndamento:true},
+    }
+  },
+  // ── FINANCEIRO ─────────────────────────────────────────
+  {
+    id:'faturamento', nome:'Faturamento',
+    grupo:'finance', fmt:'moeda', dir:'maior', agr:'soma',
+    fonte:'Faturamento → MAIO!X6',
+    dados:{
+      Jan:{resultado:69885.90,  metaMensal:80000, pct:87.36},
+      Fev:{resultado:110130.27, metaMensal:80000, pct:137.66},
+      Mar:{resultado:86516.59,  metaMensal:80000, pct:108.15},
+      Abr:{resultado:103280.10, metaMensal:80000, pct:129.10},
+      Mai:{resultado:57953.05,  metaMensal:80000, pct:118.19, emAndamento:true},
+    }
+  },
+  {
+    id:'ticket_medio', nome:'Ticket Médio',
+    grupo:'finance', fmt:'moeda', dir:'maior', agr:'media',
+    fonte:'Derivado: Faturamento ÷ Clientes',
+    dados:{
+      Jan:{resultado:2329.53, metaMensal:2500, pct:93.18},
+      Fev:{resultado:3059.17, metaMensal:2500, pct:122.37},
+      Mar:{resultado:2471.90, metaMensal:2500, pct:98.88},
+      Abr:{resultado:2648.21, metaMensal:2500, pct:105.93},
+      Mai:{resultado:2519.70, metaMensal:2500, pct:100.79, emAndamento:true},
+    }
+  },
+  {
+    id:'investimento', nome:'Investimento (Ads)',
+    grupo:'finance', fmt:'moeda', dir:'menor', agr:'soma',
+    fonte:'DRE → DRE 2026!N49',
+    dados:{
+      Jan:{resultado:20545.15, metaMensal:16000, pct:128.41},
+      Fev:{resultado:22916.84, metaMensal:16000, pct:143.23},
+      Mar:{resultado:30299.47, metaMensal:16000, pct:189.37},
+      Abr:{resultado:23575.29, metaMensal:16000, pct:147.35},
+      Mai:{resultado:15838.09, metaMensal:16000, pct:161.51, emAndamento:true},
+    }
+  },
+  {
+    id:'cac', nome:'CAC',
+    grupo:'finance', fmt:'moeda', dir:'menor', agr:'media',
+    fonte:'Derivado: Investimento ÷ Clientes',
+    dados:{
+      Jan:{resultado:684.84, metaMensal:500, pct:136.97},
+      Fev:{resultado:636.58, metaMensal:500, pct:127.32},
+      Mar:{resultado:865.70, metaMensal:500, pct:173.14},
+      Abr:{resultado:604.49, metaMensal:500, pct:120.90},
+      Mai:{resultado:688.61, metaMensal:500, pct:137.72, emAndamento:true},
+    }
+  },
+  // ── TAXAS ──────────────────────────────────────────────
+  {
+    id:'tx_reuniao_cliente', nome:'Conv. Reunião → Cliente',
+    grupo:'rates', fmt:'pct', dir:'maior', agr:'media',
+    fonte:'Derivado: Clientes ÷ Reuniões',
+    dados:{
+      Jan:{resultado:32.26, metaMensal:30, pct:107.53},
+      Fev:{resultado:47.37, metaMensal:30, pct:157.89},
+      Mar:{resultado:36.46, metaMensal:30, pct:121.53},
+      Abr:{resultado:45.88, metaMensal:30, pct:152.94},
+      Mai:{resultado:48.94, metaMensal:30, pct:244.68, emAndamento:true},
+    }
+  },
+  {
+    id:'tx_lead_reuniao', nome:'Conv. Lead → Reunião',
+    grupo:'rates', fmt:'pct', dir:'maior', agr:'media',
+    fonte:'Derivado: Reuniões ÷ Leads Abordados',
+    dados:{
+      Jan:{resultado:7.79,  metaMensal:12, pct:64.91},
+      Fev:{resultado:10.00, metaMensal:12, pct:83.33},
+      Mar:{resultado:13.19, metaMensal:12, pct:109.89},
+      Abr:{resultado:7.32,  metaMensal:12, pct:61.01},
+      Mai:{resultado:9.61,  metaMensal:12, pct:80.10, emAndamento:true},
+    }
+  },
+  {
+    id:'tx_lead_cliente', nome:'Conv. Lead → Cliente',
+    grupo:'rates', fmt:'pct', dir:'maior', agr:'media',
+    fonte:'Derivado: Clientes ÷ Leads Abordados',
+    dados:{
+      Jan:{resultado:2.51, metaMensal:2.5, pct:100.50},
+      Fev:{resultado:4.74, metaMensal:2.5, pct:189.47},
+      Mar:{resultado:4.81, metaMensal:2.5, pct:192.31},
+      Abr:{resultado:3.36, metaMensal:2.5, pct:134.37},
+      Mai:{resultado:4.70, metaMensal:2.5, pct:188.14, emAndamento:true},
+    }
+  },
+  {
+    id:'roi', nome:'ROI',
+    grupo:'rates', fmt:'mult', dir:'maior', agr:'calc',
+    fonte:'Derivado: Faturamento ÷ Investimento',
+    dados:{
+      Jan:{resultado:3.40, metaMensal:5, pct:68.03},
+      Fev:{resultado:4.81, metaMensal:5, pct:96.11},
+      Mar:{resultado:2.86, metaMensal:5, pct:57.11},
+      Abr:{resultado:4.38, metaMensal:5, pct:87.62},
+      Mai:{resultado:3.66, metaMensal:5, pct:73.18, emAndamento:true},
+    }
+  },
+];
+
+// ════════════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════════════
+function fv(v, fmt, decimais) {
+  if(v===null||v===undefined) return '—';
+  const d2 = decimais!==undefined ? decimais : (fmt==='numero'?0:2);
+  switch(fmt) {
+    case 'numero': return Math.round(v).toLocaleString('pt-BR');
+    case 'moeda':  return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    case 'pct':    return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+    case 'mult':   return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'×';
+    default:       return String(v);
+  }
+}
+function fm(v, fmt) {   // meta: sem centavos para moeda
+  if(v===null||v===undefined) return '—';
+  switch(fmt) {
+    case 'numero': return v.toLocaleString('pt-BR',{maximumFractionDigits:0});
+    case 'moeda':  return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+    case 'pct':    return v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+    case 'mult':   return v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})+'×';
+    default:       return String(v);
+  }
+}
+function st(pct, dir) {
+  if(dir==='maior') { return pct>=100?'g':pct>=70?'y':'r'; }
+  else              { return pct<=100?'g':pct<=130?'y':'r'; }
+}
+function stFull(pct, dir) { const s=st(pct,dir); return s==='g'?'green':s==='y'?'yellow':'red'; }
+function barW(pct, dir) {
+  if(dir==='maior') return Math.min(100,pct)+'%';
+  return Math.min(100,Math.max(0,(100/pct)*100))+'%';
+}
+
+// tem projeção significativa?
+function temProj(kpi) { return ['soma'].includes(kpi.agr) && kpi.fmt !== 'pct' && kpi.fmt !== 'mult'; }
+
+
+// ════════════════════════════════════════════════════════════
+//  ESTADO
+// ════════════════════════════════════════════════════════════
+let mesSel='Mai', evoCharts=[];
+
+// ════════════════════════════════════════════════════════════
+//  RENDER: MENSAL
+// ════════════════════════════════════════════════════════════
+function renderMensal() {
+  const m = mesSel;
+  const andamento = KPIS.some(k=>k.dados[m]?.emAndamento);
+  document.getElementById('notice').style.display = andamento?'block':'none';
+  document.getElementById('notice-data').textContent =
+    DIA_ATUAL+'/'+String(MESES.indexOf(m)+1).padStart(2,'0')+'/2026';
+
+  // Summary strip
+  const fat = KPIS.find(k=>k.id==='faturamento').dados[m]||{};
+  const cli = KPIS.find(k=>k.id==='clientes').dados[m]||{};
+  const roi = KPIS.find(k=>k.id==='roi').dados[m]||{};
+  const inv = KPIS.find(k=>k.id==='investimento').dados[m]||{};
+  const okN = KPIS.filter(k=>{const d=k.dados[m];return d&&st(d.pct,k.dir)==='g';}).length;
+
+  document.getElementById('sstrip').innerHTML = `
+    <div class="scard">
+      <div class="sl">Faturamento</div>
+      <div class="sv" style="font-size:16px">${fv(fat.resultado,'moeda')}</div>
+      <div class="ss">Meta: ${fm(fat.metaMensal,'moeda')}</div>
+      <div class="ss c-${st(fat.pct||0,'maior')}" style="font-weight:600">${(fat.pct||0).toFixed(1)}% da meta${fat.emAndamento?' · proj.':''}</div>
+    </div>
+    <div class="scard">
+      <div class="sl">Clientes</div>
+      <div class="sv">${cli.resultado||'—'}</div>
+      <div class="ss">Meta: ${cli.metaMensal||'—'}</div>
+      <div class="ss c-${st(cli.pct||0,'maior')}" style="font-weight:600">${(cli.pct||0).toFixed(1)}%${cli.emAndamento?' · proj.':''}</div>
+    </div>
+    <div class="scard">
+      <div class="sl">ROI</div>
+      <div class="sv">${(roi.resultado||0).toFixed(2)}×</div>
+      <div class="ss">Meta: 5×</div>
+      <div class="ss c-${st(roi.pct||0,'maior')}" style="font-weight:600">${(roi.pct||0).toFixed(1)}%</div>
+    </div>
+    <div class="scard">
+      <div class="sl">Investimento</div>
+      <div class="sv" style="font-size:15px">${fv(inv.resultado,'moeda')}</div>
+      <div class="ss">Orçamento: ${fm(inv.metaMensal,'moeda')}</div>
+      <div class="ss c-${st(inv.pct||0,'menor')}" style="font-weight:600">${(inv.pct||0).toFixed(1)}% do orçamento</div>
+    </div>
+    <div class="scard">
+      <div class="sl">KPIs no verde</div>
+      <div class="sv" style="color:var(--green)">${okN}<span style="font-size:14px;color:var(--muted)">/${KPIS.length}</span></div>
+      <div class="ss">atingindo a meta</div>
+    </div>`;
+
+  // KPI groups
+  const gs = {volume:'g-volume',results:'g-results',finance:'g-finance',rates:'g-rates'};
+  for(const [g,gid] of Object.entries(gs)) {
+    document.getElementById(gid).innerHTML =
+      KPIS.filter(k=>k.grupo===g).map(kpi=>buildCard(kpi,m)).join('');
+  }
+}
+
+function buildCard(kpi, m) {
+  const d = kpi.dados[m];
+  if(!d) return `<div class="kcard"><div class="kname">${kpi.nome}</div><div style="color:var(--muted);margin-top:8px">Sem dados</div></div>`;
+
+  const s    = st(d.pct, kpi.dir);
+
+  // Calcular projeção e meta proporcional para meses em andamento
+  const haProj = d.emAndamento && temProj(kpi);
+  const proj = d.projetado !== undefined
+    ? d.projetado
+    : haProj ? Math.round(d.resultado * FATOR_PROJ) : null;
+  // Meta proporcional só faz sentido para KPIs de volume/soma (não taxas, CAC, ticket médio, ROI)
+  const temMetaProp = d.emAndamento && kpi.agr === 'soma';
+  const metaProp = temMetaProp
+    ? parseFloat((d.metaMensal * (DIA_ATUAL / DIAS_MES)).toFixed(2))
+    : null;
+  const pctReal = parseFloat((d.resultado / d.metaMensal * 100).toFixed(2));
+  const pctProp = metaProp ? parseFloat((d.resultado / metaProp * 100).toFixed(2)) : null;
+  const pctProj = proj ? parseFloat((proj / d.metaMensal * 100).toFixed(2)) : null;
+
+  // Linhas de detalhe
+  let details = '';
+
+  if(d.emAndamento) {
+    // resultado MTD
+    details += `<div class="krow"><span class="lbl">Realizado (MTD)</span><span class="val">${fv(d.resultado,kpi.fmt)}</span></div>`;
+    // projeção (só para KPIs de volume/financeiro)
+    if(haProj && proj!==null) {
+      const sProj = st(pctProj||0, kpi.dir);
+      details += `<div class="krow"><span class="lbl">Projeção (mês)</span><span class="val proj">${fv(proj,kpi.fmt)}</span></div>`;
+    }
+    // meta proporcional
+    if(metaProp!==null) {
+      details += `<div class="krow"><span class="lbl">Meta proporcional (${DIA_ATUAL}d)</span><span class="val">${fm(metaProp,kpi.fmt)}</span></div>`;
+    }
+    // meta mensal
+    details += `<div class="krow"><span class="lbl">Meta mensal</span><span class="val">${fm(d.metaMensal,kpi.fmt)}</span></div>`;
+  } else {
+    details += `<div class="krow"><span class="lbl">Meta mensal</span><span class="val">${fm(d.metaMensal,kpi.fmt)}</span></div>`;
+  }
+
+  // Bloco de percentuais
+  let pctBlock = '';
+  if(d.emAndamento) {
+    // % real vs meta proporcional
+    if(pctProp!==null) {
+      const sProp = st(pctProp, kpi.dir);
+      pctBlock += `<div class="kpct-row"><span class="plbl">vs meta proporcional</span><span class="kpct-main c-${sProp}">${pctProp.toFixed(1)}%</span></div>`;
+    }
+    // % projeção vs meta mensal
+    if(haProj && pctProj!==null) {
+      const sP2 = st(pctProj, kpi.dir);
+      pctBlock += `<div class="kpct-row"><span class="plbl">projeção vs meta</span><span class="kpct-main c-${sP2}">${pctProj.toFixed(1)}%</span></div>`;
+    } else {
+      // para taxas/derivados, mostrar % real vs meta
+      const sR = st(pctReal, kpi.dir);
+      pctBlock += `<div class="kpct-row"><span class="plbl">vs meta mensal</span><span class="kpct-main c-${sR}">${pctReal.toFixed(1)}%</span></div>`;
+    }
+  } else {
+    pctBlock = `<div class="kpct-row"><span class="plbl">vs meta</span><span class="kpct-main c-${s}">${d.pct.toFixed(1)}%</span></div>`;
+  }
+
+  const barPct = d.emAndamento && pctProj!==null ? pctProj : pctProp!==null ? pctProp : d.pct;
+  const barS   = st(barPct, kpi.dir);
+
+  return `
+    <div class="kcard" title="Fonte: ${kpi.fonte}">
+      <div class="kc-head">
+        <span class="kdot dot-${s}"></span>
+        <span class="kname">${kpi.nome}</span>
+        ${d.emAndamento?'<span class="kbadge">Em curso</span>':''}
+      </div>
+      <div class="kresult">${fv(d.resultado,kpi.fmt)}</div>
+      <div class="kdetails">${details}</div>
+      ${pctBlock}
+      <div class="pbar-bg"><div class="pbar-fill bar-${barS}" style="width:${barW(barPct,kpi.dir)}"></div></div>
+    </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  RENDER: ANUAL
+// ════════════════════════════════════════════════════════════
+
+// Calcula acumulado anual de um KPI
+function calcAnual(kpi) {
+  const meses = MESES.filter(m=>kpi.dados[m]);
+  if(!meses.length) return null;
+
+  let soma=0, metaSoma=0, pctSoma=0, n=0;
+  meses.forEach(m=>{
+    const d=kpi.dados[m];
+    soma    += d.resultado;
+    metaSoma+= d.metaMensal;
+    pctSoma += d.pct;
+    n++;
+  });
+  const media=soma/n, mediaPct=pctSoma/n;
+
+  let valorAnual, metaAnual;
+  if(kpi.agr==='soma')  { valorAnual=soma;  metaAnual=metaSoma; }
+  else if(kpi.agr==='media') { valorAnual=media; metaAnual=metaSoma/n; }
+  else { // 'calc' = ROI
+    const fat = KPIS.find(k=>k.id==='faturamento');
+    const inv = KPIS.find(k=>k.id==='investimento');
+    const tf = MESES.filter(m=>fat.dados[m]).reduce((a,m)=>a+fat.dados[m].resultado,0);
+    const ti = MESES.filter(m=>inv.dados[m]).reduce((a,m)=>a+inv.dados[m].resultado,0);
+    valorAnual = tf/ti;
+    metaAnual  = kpi.dados[MESES[0]].metaMensal;
+  }
+
+  const pctAnual = valorAnual/metaAnual*100;
+  const melhor = meses.reduce((a,m)=>kpi.dados[m].pct>kpi.dados[a].pct?m:a);
+  const pior   = meses.reduce((a,m)=>kpi.dados[m].pct<kpi.dados[a].pct?m:a);
+  return { valorAnual, metaAnual, mediaPct, pctAnual, melhor, pior };
+}
+
+function renderAnual() {
+  const anualCards = [
+    { kpiId:'faturamento',  label:'Faturamento Total' },
+    { kpiId:'investimento', label:'Investimento Total' },
+    { kpiId:'clientes',     label:'Clientes Totais' },
+    { kpiId:'cac',          label:'CAC Médio' },
+    { kpiId:'roi',          label:'ROI Médio' },
+  ];
+
+  document.getElementById('anual-grid').innerHTML = anualCards.map(({kpiId,label})=>{
+    const kpi = KPIS.find(k=>k.id===kpiId);
+    const a   = calcAnual(kpi);
+    if(!a) return '';
+    const s = st(a.mediaPct, kpi.dir);
+    return '<div class="anual-card">'
+      +'<div class="al">'+label+'</div>'
+      +'<div class="av">'+fv(a.valorAnual,kpi.fmt)+'</div>'
+      +'<div class="as">Meta: '+fm(a.metaAnual,kpi.fmt)+'</div>'
+      +'<div class="apct c-'+s+'">'+a.mediaPct.toFixed(1)+'% média</div>'
+      +'</div>';
+  }).join('');
+
+  let tbl = '<thead><tr><th>KPI</th>'
+    +MESES.map(m=>'<th class="r">'+MFULL[m].slice(0,3)+'</th>').join('')
+    +'<th class="r">Acumulado</th><th class="r">Média/mês</th><th class="r">% Médio</th>'
+    +'<th class="r">Melhor</th><th class="r">Pior</th>'
+    +'</tr></thead><tbody>';
+
+  KPIS.forEach(kpi=>{
+    const a = calcAnual(kpi);
+    if(!a) return;
+    const aS = st(a.mediaPct,kpi.dir);
+    const mesesComDados = MESES.filter(m=>kpi.dados[m]);
+    const mediaRes = mesesComDados.reduce((acc,m)=>acc+kpi.dados[m].resultado,0)/mesesComDados.length;
+    tbl+='<tr><td class="kn">'+kpi.nome+'</td>';
+    MESES.forEach(m=>{
+      const d=kpi.dados[m];
+      if(!d){ tbl+='<td class="r" style="color:var(--muted)">—</td>'; return; }
+      const and=d.emAndamento?'*':'';
+      const s=stFull(d.pct,kpi.dir);
+      tbl+='<td class="r"><span class="tpct">'
+        +'<span class="tdot" style="background:var(--'+s+')"></span>'
+        +fv(d.resultado,kpi.fmt)+and
+        +'</span></td>';
+    });
+    tbl+='<td class="r"><strong>'+fv(a.valorAnual,kpi.fmt)+'</strong></td>'
+      +'<td class="r" style="font-weight:600">'+fv(mediaRes,kpi.fmt)+'</td>'
+      +'<td class="r"><span class="tpct c-'+aS+'"><span class="tdot" style="background:var(--'
+      +stFull(a.mediaPct,kpi.dir)+')"></span>'+a.mediaPct.toFixed(1)+'%</span></td>'
+      +'<td class="r" style="color:var(--green);font-size:11px">'+MFULL[a.melhor].slice(0,3)
+      +'<br><span style="color:var(--muted)">'+fv(kpi.dados[a.melhor].resultado,kpi.fmt)+'</span></td>'
+      +'<td class="r" style="color:var(--red);font-size:11px">'+MFULL[a.pior].slice(0,3)
+      +'<br><span style="color:var(--muted)">'+fv(kpi.dados[a.pior].resultado,kpi.fmt)+'</span></td>'
+      +'</tr>';
+  });
+  tbl+='</tbody><tfoot><tr><td colspan="'+(5+MESES.length)
+    +'">* Mês em andamento — percentual baseado na projeção ao ritmo atual.</td></tr></tfoot>';
+  document.getElementById('anual-table').innerHTML = tbl;
+}
+
+function renderEvo() {
+  // Destruir gráficos anteriores
+  evoCharts.forEach(c=>c.destroy());
+  evoCharts=[];
+  const container = document.getElementById('evo-charts');
+  container.innerHTML='';
+
+  const labels = MESES.map(m=>MFULL[m]);
+
+  KPIS.forEach(kpi=>{
+    const pcts  = MESES.map(m=>kpi.dados[m]?.pct??null);
+    const res   = MESES.map(m=>kpi.dados[m]?.resultado??null);
+    const metas = MESES.map(m=>kpi.dados[m]?.metaMensal??null);
+    const proj  = MESES.map(m=>{
+      const d=kpi.dados[m];
+      if(!d?.emAndamento||!temProj(kpi)) return null;
+      return d.projetado ?? Math.round(d.resultado*FATOR_PROJ);
+    });
+
+    const ptColors = pcts.map(p=>p===null?'transparent':
+      st(p,kpi.dir)==='g'?'#16a34a':st(p,kpi.dir)==='y'?'#ca8a04':'#dc2626');
+
+    const box = document.createElement('div');
+    box.className='chart-box';
+    box.style.marginBottom='14px';
+    const canvas = document.createElement('canvas');
+    canvas.height=90;
+    box.appendChild(canvas);
+    container.appendChild(box);
+
+    const datasets = [
+      {
+        label:'% da Meta', data:pcts, borderColor:'#1e40af',
+        backgroundColor:'rgba(30,64,175,.07)', borderWidth:2,
+        pointBackgroundColor:ptColors, pointBorderColor:ptColors,
+        pointRadius:5, pointHoverRadius:7, tension:.35, fill:true,
+        yAxisID:'yPct', spanGaps:true
+      },
+      {
+        label:'Resultado', data:res, borderColor:'#d4d4d4',
+        borderDash:[5,4], borderWidth:1.5, pointBackgroundColor:'#aaa',
+        pointRadius:3, tension:.35, fill:false, yAxisID:'yRes', spanGaps:true
+      },
+      {
+        label:'Meta Mensal', data:metas, borderColor:'#f97316',
+        borderDash:[3,3], borderWidth:1.5, pointRadius:0,
+        tension:0, fill:false, yAxisID:'yRes', spanGaps:true
+      }
+    ];
+    if(proj.some(v=>v!==null)) {
+      datasets.push({
+        label:'Projeção', data:proj, borderColor:'#1e40af',
+        borderDash:[2,2], borderWidth:1.5, pointRadius:4,
+        pointStyle:'triangle', tension:.2, fill:false, yAxisID:'yRes', spanGaps:true
+      });
+    }
+
+    const chart = new Chart(canvas.getContext('2d'), {
+      type:'line', data:{labels, datasets},
+      options:{
+        responsive:true,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{position:'top',labels:{font:{size:10},usePointStyle:true,boxWidth:7,padding:12}},
+          title:{display:true,text:kpi.nome+' — Evolução Jan–Mai 2026',font:{size:12,weight:'600'},color:'#1c1c1c',padding:{bottom:10}},
+          tooltip:{callbacks:{
+            label(ctx){
+              if(ctx.datasetIndex===0) return ' '+(ctx.parsed.y||0).toFixed(1)+'% da meta';
+              if(ctx.datasetIndex===1) return ' Resultado: '+fv(ctx.parsed.y,kpi.fmt);
+              if(ctx.datasetIndex===2) return ' Meta: '+fm(ctx.parsed.y,kpi.fmt);
+              return ' Projeção: '+fv(ctx.parsed.y,kpi.fmt);
+            }
+          }}
+        },
+        scales:{
+          yPct:{type:'linear',position:'left',title:{display:true,text:'% da Meta',font:{size:10},color:'#737373'},ticks:{callback:v=>v+'%',font:{size:10}},grid:{color:'#f0f0ee'}},
+          yRes:{type:'linear',position:'right',title:{display:true,text:'Resultado',font:{size:10},color:'#737373'},ticks:{callback:v=>fv(v,kpi.fmt),font:{size:10}},grid:{drawOnChartArea:false}},
+          x:{ticks:{font:{size:10}},grid:{color:'#f0f0ee'}}
+        }
+      }
+    });
+    evoCharts.push(chart);
+  });
+}
+
+function initMbar() {
+  document.getElementById('mbar').innerHTML =
+    '<span class="mbar-lbl">Mês:</span>'+
+    MESES.map(m=>'<button class="m-btn'+(m===mesSel?' active':'')+'" onclick="selMes(\''+m+'\',this)">'+MFULL[m]+'</button>').join('');
+}
+function selMes(m,btn) {
+  mesSel=m;
+  document.querySelectorAll('.m-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMensal();
+}
+function switchTab(t,btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  if(t==='anual'){ renderAnual(); renderEvo(); }
+}
+document.getElementById('hdr-sub').textContent =
+  'BM Advocacia & Consultoria · Atualizado '+
+  HOJE.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
+
+// ════════════════════════════════════════════════════════════
+//  MODAL — CONFIGURAR METAS DO MÊS ATUAL
+// ════════════════════════════════════════════════════════════
+const GRUPOS_LABEL = {volume:'Volume de Leads', results:'Resultados Comerciais', finance:'Financeiro', rates:'Taxas de Conversão'};
+const GRUPOS_ORDER = ['volume','results','finance','rates'];
+
+function openMetas() {
+  document.getElementById('modal-mes-nome').textContent = MFULL[MES_ATUAL];
+  const grid = document.getElementById('metas-grid');
+  let html = '';
+  GRUPOS_ORDER.forEach(grupo=>{
+    const kpisGrupo = KPIS.filter(k=>k.grupo===grupo);
+    if(!kpisGrupo.length) return;
+    html += `<div class="meta-sep">${GRUPOS_LABEL[grupo]}</div>`;
+    kpisGrupo.forEach(kpi=>{
+      const meta = kpi.dados[MES_ATUAL]?.metaMensal ?? '';
+      const hint = kpi.fmt==='moeda'?'R$':kpi.fmt==='pct'?'%':kpi.fmt==='mult'?'×':'un.';
+      html += `<div class="meta-field">
+        <label>${kpi.nome} <span style="font-weight:400;color:var(--muted)">(${hint})</span></label>
+        <input type="number" id="meta-${kpi.id}" value="${meta}" step="any" min="0">
+      </div>`;
+    });
+  });
+  grid.innerHTML = html;
+  document.getElementById('modal-metas').classList.add('open');
+}
+function closeMetas() {
+  document.getElementById('modal-metas').classList.remove('open');
+}
+function salvarMetas() {
+  KPIS.forEach(kpi=>{
+    const inp = document.getElementById('meta-'+kpi.id);
+    if(!inp) return;
+    const val = parseFloat(inp.value);
+    if(isNaN(val)||val<=0) return;
+    if(!kpi.dados[MES_ATUAL]) kpi.dados[MES_ATUAL]={};
+    kpi.dados[MES_ATUAL].metaMensal = val;
+    // recalcular pct com o novo valor
+    if(kpi.dados[MES_ATUAL].resultado!==undefined) {
+      kpi.dados[MES_ATUAL].pct = parseFloat((kpi.dados[MES_ATUAL].resultado / val * 100).toFixed(2));
+    }
+  });
+  closeMetas();
+  renderMensal();
+}
+
+document.getElementById('hdr-sub').textContent =
+  'BM Advocacia & Consultoria · Atualizado '+
+  HOJE.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
+
+initMbar();
+renderMensal();
+</script>
+</body>
+</html>
