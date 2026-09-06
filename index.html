@@ -57,6 +57,26 @@
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.45}
 
+  /* ── FUNIL REV. SAÚDE ── */
+  .fsub{font-size:11.5px;color:var(--muted);margin:-4px 0 12px;line-height:1.5}
+  .fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+  .fnote{font-size:10.5px;color:var(--muted);margin-top:9px;line-height:1.5}
+  .fbars{display:flex;flex-direction:column;gap:7px}
+  .fbar{display:grid;grid-template-columns:190px 1fr 88px 74px;gap:10px;align-items:center}
+  .fbar-nome{font-size:11.5px;color:var(--text)}
+  .fbar-trilho{background:var(--bg3);border-radius:5px;height:22px;position:relative;overflow:hidden}
+  .fbar-real{height:100%;background:var(--accent);border-radius:5px 0 0 5px;transition:width .3s}
+  .fbar-alvo{position:absolute;top:0;bottom:0;width:2px;background:var(--yellow);opacity:.85}
+  .fbar-val{font-size:12px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+  .fbar-tx{font-size:10.5px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .fbar-tx b{color:var(--text)}
+  .fmes{padding:5px 12px;border:1px solid var(--border);background:var(--card);color:var(--muted);
+        border-radius:20px;font-size:11.5px;cursor:pointer;white-space:nowrap}
+  .fmes:hover{border-color:var(--accent-lt);color:var(--text)}
+  .fmes.ativo{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+  #funil-tabela td.num,#funil-tabela th.num{text-align:right;font-variant-numeric:tabular-nums}
+  @media(max-width:760px){ .fbar{grid-template-columns:120px 1fr 70px;} .fbar-tx{display:none} }
+
   /* ── HEADER ── */
   .hdr{background:var(--card);border-bottom:1px solid var(--border);padding:13px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30}
   .hdr h1{font-size:15px;font-weight:600;letter-spacing:-.01em}
@@ -207,6 +227,7 @@
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('mensal',this)">Visão Mensal</button>
       <button class="tab-btn" onclick="switchTab('anual',this)">Resultado Anual</button>
+      <button class="tab-btn" onclick="switchTab('funil',this)">Funil — Rev. Saúde</button>
     </div>
   </div>
 </div>
@@ -221,6 +242,34 @@
       <button class="btn btn-secondary" onclick="closeMetas()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarMetas()">Salvar metas</button>
     </div>
+  </div>
+</div>
+
+<!-- ══ TAB 3: FUNIL REV. SAÚDE ══ -->
+<div id="tab-funil" class="tab-content">
+  <div class="mbar" id="funil-mbar"><span class="mbar-lbl">Carregando…</span></div>
+  <div class="content">
+    <div class="sh">Funil de Vendas — Revisional de Plano de Saúde</div>
+    <p class="fsub" id="funil-sub">Lendo a planilha…</p>
+
+    <div class="kgrid" id="funil-kpis"><div class="loading-msg">⟳ Carregando…</div></div>
+
+    <div class="sh">Etapas do funil no mês</div>
+    <div class="card fcard">
+      <div class="fbars" id="funil-etapas"></div>
+      <p class="fnote">A taxa ao lado de cada etapa é a passagem vinda da etapa anterior — é onde
+        se perde gente, e não no total. A barra compara com a projeção proporcional do mês.</p>
+    </div>
+
+    <div class="sh">Mês a mês</div>
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table id="funil-tabela"></table>
+    </div>
+    <p class="fnote" id="funil-nota-tabela"></p>
+
+    <div class="sh">Evolução</div>
+    <div class="card fcard"><div style="height:260px"><canvas id="funil-graf-vol"></canvas></div></div>
+    <div class="card fcard" style="margin-top:10px"><div style="height:240px"><canvas id="funil-graf-conv"></canvas></div></div>
   </div>
 </div>
 
@@ -893,12 +942,329 @@ function selMes(m, btn) {
   renderMensal();
 }
 
+// ════════════════════════════════════════════════════════════
+//  FUNIL DE VENDAS — REVISIONAL DE PLANO DE SAÚDE
+//  Planilha "Metas e Resultados - Comercial". O nome da aba mudou no meio do
+//  ano: até junho/26 "Produtos Jurídicos [Mês/26]", de julho em diante
+//  "Rev. Saúde [Mês/26]". Tenta-se os dois nomes por mês.
+// ════════════════════════════════════════════════════════════
+var FUNIL_SHEET_ID = '1o1UY_NwKlq07c2wFrkQXecK8Cs5jsHtuRzDFIWQGkSM';
+
+/* Etapas na ordem em que o lead percorre o funil. As colunas da planilha são
+   resolvidas pelo NOME do cabeçalho, não pela posição: esta planilha já mudou
+   de arranjo antes, e posição fixa quebra em silêncio. */
+/* A primeira etapa mudou de nome: até fevereiro/26 era "Leads abordados ou que
+   falaram no Whatsapp"; de março em diante, "Leads (Kommo)". Não são a mesma
+   definição, e o painel declara qual foi usada em vez de fundir as duas. */
+var FUNIL_ETAPA_LEADS = ['Leads (Kommo)', 'Leads abordados ou que falaram no Whatsapp'];
+
+var FUNIL_ETAPAS = [
+  'Leads (Kommo)', 'Responderam a Triagem', 'Elegíveis', 'Responderam a Qualificação',
+  'Qualificados (Aguardando Documentação)', 'Diagnósticos', 'Viáveis',
+  'Atendimentos Realizados', 'Clientes'
+];
+var FUNIL_CURTO = {
+  'Leads (Kommo)':'Leads', 'Responderam a Triagem':'Responderam à triagem',
+  'Elegíveis':'Elegíveis', 'Responderam a Qualificação':'Responderam à qualificação',
+  'Qualificados (Aguardando Documentação)':'Qualificados', 'Diagnósticos':'Diagnósticos',
+  'Viáveis':'Viáveis', 'Atendimentos Realizados':'Atendimentos', 'Clientes':'Clientes'
+};
+var FUNIL_FIN = [
+  {col:'Ticket Médio', fmt:'moeda'}, {col:'Faturamento', fmt:'moeda'},
+  {col:'Investimento Mensal', fmt:'moeda'}, {col:'CPL', fmt:'moeda'},
+  {col:'CAC', fmt:'moeda'}, {col:'ROI', fmt:'mult'}, {col:'Conversão Total', fmt:'pct'}
+];
+
+var FUNIL = {};            // mesAbbr -> { aba, cols, linhas, dias }
+var funilMesSel = null;
+var funilCarregadoEm = 0;
+var funilCharts = [];
+
+function funilNomesAba(m) {
+  var mes = MFULL[m] + '/' + ANO_SUFIXO;
+  return ['Rev. Saúde [' + mes + ']', 'Produtos Jurídicos [' + mes + ']'];
+}
+
+/* CSV, não JSON. Com tqx=out:json&headers=0 o gviz tipa cada coluna como
+   número e descarta o texto do cabeçalho — chegava ['Análise','','','',…] e
+   nenhuma coluna era encontrada pelo nome. Em CSV toda célula volta como
+   texto, cabeçalho incluído. */
+function funilUrl(aba) {
+  return 'https://docs.google.com/spreadsheets/d/' + FUNIL_SHEET_ID +
+         '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent(aba) +
+         '&_=' + Date.now();
+}
+
+/* CSV com aspas: os valores têm vírgula dentro ("R$ 2.600,00"), então dividir
+   por vírgula não serve. */
+function funilCSV(texto) {
+  var linhas = [], campo = '', linha = [], dentro = false;
+  for (var i = 0; i < texto.length; i++) {
+    var c = texto[i];
+    if (dentro) {
+      if (c === '"') {
+        if (texto[i + 1] === '"') { campo += '"'; i++; } else dentro = false;
+      } else campo += c;
+    } else if (c === '"') dentro = true;
+    else if (c === ',') { linha.push(campo); campo = ''; }
+    else if (c === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
+    else if (c !== '\r') campo += c;
+  }
+  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
+  return linhas;
+}
+
+function funilNum(v) {
+  if (typeof v === 'number') return v;
+  if (v === null || v === undefined || v === '') return null;
+  var t = String(v).trim();
+  if (!t || t.indexOf('#') === 0) return null;          // #DIV/0! e afins
+  var pct = t.indexOf('%') >= 0;
+  var n = parseFloat(t.replace(/[R$\s.]/g, '').replace(',', '.'));
+  if (!isFinite(n)) return null;
+  return pct ? n / 100 : n;
+}
+function funilTexto(c) { return c == null ? '' : String(c).trim(); }
+
+/* Pedindo uma aba inexistente, o gviz devolve a PRIMEIRA aba da planilha em vez
+   de erro. Sem esta validação, um mês ausente apareceria com os números de
+   outra aba — dado errado com cara de certo. */
+function funilLayoutValido(grade) {
+  if (!grade || grade.length < 6) return false;
+  var cab = (grade[0] || []).map(function (c) { return funilTexto(c); });
+  /* Exige as duas colunas que existem em todos os formatos da aba. Os nomes
+     da primeira etapa variam, então não servem de âncora. */
+  return cab.indexOf('Responderam a Triagem') >= 0 && cab.indexOf('Clientes') >= 0;
+}
+
+async function funilBuscarAba(aba) {
+  try {
+    var resp = await fetch(funilUrl(aba));
+    if (!resp.ok) return null;
+    var grade = funilCSV(await resp.text());
+    return funilLayoutValido(grade) ? grade : null;
+  } catch (e) { return null; }
+}
+
+async function funilCarregar() {
+  var meses = MESES_ABBR.slice(0, HOJE.getMonth() + 1);
+  var achados = {};
+  await Promise.all(meses.map(async function (m) {
+    var nomes = funilNomesAba(m);
+    for (var i = 0; i < nomes.length; i++) {
+      var grade = await funilBuscarAba(nomes[i]);
+      if (!grade) continue;
+      var cab = (grade[0] || []).map(function (c) { return funilTexto(c); });
+      var linhas = {};
+      for (var r = 1; r < grade.length; r++) {
+        var rot = funilTexto(grade[r][0]);
+        if (rot) linhas[rot] = grade[r];
+      }
+      /* Os rótulos "Dias no Mês" e "Dias Computados" ficam em colunas
+         numéricas e o gviz os descarta — sobram os números sem rótulo, e
+         casá-los por posição seria chute. A data de referência da última
+         linha diz a mesma coisa e chega intacta: a coluna A é de texto. */
+      var ult = grade[grade.length - 1] || [];
+      var dataRef = funilTexto(ult[0]);
+      if (!/\d{2}\/\d{2}\/\d{4}/.test(dataRef)) dataRef = '';
+
+      /* Qual nome a primeira etapa tem neste mês. */
+      var colLeads = null;
+      for (var e = 0; e < FUNIL_ETAPA_LEADS.length; e++) {
+        if (cab.indexOf(FUNIL_ETAPA_LEADS[e]) >= 0) { colLeads = FUNIL_ETAPA_LEADS[e]; break; }
+      }
+
+      achados[m] = { aba: nomes[i], cab: cab, linhas: linhas,
+                     dataRef: dataRef, colLeads: colLeads };
+      break;
+    }
+  }));
+  FUNIL = achados;
+  funilCarregadoEm = Date.now();
+  var disp = MESES_ABBR.filter(function (m) { return FUNIL[m]; });
+  if (!funilMesSel || !FUNIL[funilMesSel]) funilMesSel = disp[disp.length - 1] || null;
+}
+
+/* Valor de uma linha de análise numa coluna, resolvida pelo nome. */
+/* Etapas deste mês, com a primeira resolvida pelo nome que a planilha usou. */
+function funilEtapasDe(d) {
+  return FUNIL_ETAPAS.map(function (c) {
+    return c === 'Leads (Kommo)' ? (d && d.colLeads ? d.colLeads : c) : c;
+  });
+}
+
+function funilValor(d, linha, coluna) {
+  if (!d) return null;
+  var i = d.cab.indexOf(coluna);
+  if (i < 0) return null;
+  var l = d.linhas[linha];
+  return l ? funilNum(l[i]) : null;
+}
+
+function funilFmt(v, fmt) {
+  if (v === null || v === undefined || !isFinite(v)) return '—';
+  if (fmt === 'moeda') return 'R$ ' + v.toLocaleString('pt-BR', {maximumFractionDigits:0});
+  if (fmt === 'pct')   return (v * 100).toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%';
+  if (fmt === 'mult')  return v.toLocaleString('pt-BR', {maximumFractionDigits:2}) + '×';
+  return Math.round(v).toLocaleString('pt-BR');
+}
+
+function renderFunil() {
+  var disp = MESES_ABBR.filter(function (m) { return FUNIL[m]; });
+  var mbar = document.getElementById('funil-mbar');
+  mbar.innerHTML = disp.length
+    ? '<span class="mbar-lbl">Mês:</span>' + disp.map(function (m) {
+        return '<button class="fmes' + (m === funilMesSel ? ' ativo' : '') +
+               '" onclick="funilSelecionar(\'' + m + '\')">' + MFULL[m] + '</button>';
+      }).join('')
+    : '<span class="mbar-lbl">Nenhuma aba do funil encontrada.</span>';
+
+  var d = FUNIL[funilMesSel];
+  var sub = document.getElementById('funil-sub');
+  if (!d) {
+    sub.textContent = 'Nenhum mês disponível. As abas esperadas são "Rev. Saúde [Mês/' +
+      ANO_SUFIXO + ']" ou "Produtos Jurídicos [Mês/' + ANO_SUFIXO + ']".';
+    document.getElementById('funil-kpis').innerHTML = '';
+    document.getElementById('funil-etapas').innerHTML = '';
+    document.getElementById('funil-tabela').innerHTML = '';
+    return;
+  }
+  sub.innerHTML = 'Resultados do funil comercial do produto jurídico Revisional de Plano de Saúde, ' +
+    'lidos ao vivo da planilha. Mês exibido: <b>' + MFULL[funilMesSel] + '/' + ANO_SUFIXO +
+    '</b> · aba <b>' + d.aba + '</b>' +
+    (d.dataRef ? ' · dados até <b>' + d.dataRef + '</b>' : '') + '.' +
+    (d.colLeads && d.colLeads !== 'Leads (Kommo)'
+      ? ' <b>Atenção:</b> neste mês a primeira etapa é "' + d.colLeads + '", não "Leads (Kommo)" — ' +
+        'a definição mudou em março/26 e os dois não são comparáveis diretamente.' : '');
+
+  funilCartoes(d);
+  funilBarras(d);
+  funilTabela(disp);
+  funilGraficos(disp);
+}
+
+function funilSelecionar(m) { funilMesSel = m; renderFunil(); }
+
+function funilCartoes(d) {
+  var itens = [];
+  var colLeads = funilEtapasDe(d)[0];
+  var leads = funilValor(d, 'Resultado Real', colLeads);
+  var cli   = funilValor(d, 'Resultado Real', 'Clientes');
+  itens.push({ nome:'Leads no mês', v: funilFmt(leads, 'numero'),
+               nota:'projeção proporcional: ' + funilFmt(funilValor(d,'Projeção Proporcional',colLeads),'numero') });
+  itens.push({ nome:'Clientes fechados', v: funilFmt(cli, 'numero'),
+               nota:'projeção proporcional: ' + funilFmt(funilValor(d,'Projeção Proporcional','Clientes'),'numero') });
+  FUNIL_FIN.forEach(function (f) {
+    itens.push({ nome: f.col, v: funilFmt(funilValor(d, 'Resultado Real', f.col), f.fmt),
+                 nota: 'projetado: ' + funilFmt(funilValor(d, 'Projeção Mensal', f.col), f.fmt) });
+  });
+  document.getElementById('funil-kpis').innerHTML = itens.map(function (i) {
+    return '<div class="kcard"><div class="kc-head"><div class="kname">' + i.nome + '</div></div>' +
+           '<div class="krow"><span class="val" style="font-size:20px;font-weight:600">' + i.v + '</span></div>' +
+           '<div class="kpct-row"><span class="plbl">' + i.nota + '</span></div></div>';
+  }).join('');
+}
+
+function funilBarras(d) {
+  var etapas = funilEtapasDe(d);
+  var base = funilValor(d, 'Resultado Real', etapas[0]) || 0;
+  var anterior = null;
+  var html = etapas.map(function (col) {
+    var real = funilValor(d, 'Resultado Real', col);
+    var alvo = funilValor(d, 'Projeção Proporcional', col);
+    var larg = base > 0 && real != null ? Math.max(1, real / base * 100) : 0;
+    var largAlvo = base > 0 && alvo != null ? Math.min(100, alvo / base * 100) : null;
+    var tx = (anterior != null && anterior > 0 && real != null)
+      ? (real / anterior * 100).toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%' : '—';
+    if (real != null) anterior = real;
+    return '<div class="fbar">' +
+      '<div class="fbar-nome">' + (FUNIL_CURTO[col] || col) + '</div>' +
+      '<div class="fbar-trilho"><div class="fbar-real" style="width:' + larg.toFixed(1) + '%"></div>' +
+        (largAlvo != null ? '<div class="fbar-alvo" style="left:' + largAlvo.toFixed(1) + '%"></div>' : '') +
+      '</div>' +
+      '<div class="fbar-val">' + funilFmt(real, 'numero') + '</div>' +
+      '<div class="fbar-tx">vindo de <b>' + tx + '</b></div>' +
+    '</div>';
+  }).join('');
+  document.getElementById('funil-etapas').innerHTML = html;
+}
+
+function funilTabela(disp) {
+  var cols = FUNIL_ETAPAS.concat(['Conversão Total', 'Faturamento']);
+  var thead = '<thead><tr><th>Mês</th>' + cols.map(function (c) {
+    return '<th class="num">' + (FUNIL_CURTO[c] || c) + '</th>';
+  }).join('') + '</tr></thead>';
+  var tbody = '<tbody>' + disp.map(function (m) {
+    var d = FUNIL[m];
+    return '<tr><td><b>' + MFULL[m] + '</b></td>' + cols.map(function (c) {
+      var f = c === 'Faturamento' ? 'moeda' : c === 'Conversão Total' ? 'pct' : 'numero';
+      var col = c === 'Leads (Kommo)' && d && d.colLeads ? d.colLeads : c;
+      return '<td class="num">' + funilFmt(funilValor(d, 'Resultado Real', col), f) + '</td>';
+    }).join('') + '</tr>';
+  }).join('') + '</tbody>';
+  document.getElementById('funil-tabela').innerHTML = thead + tbody;
+  document.getElementById('funil-nota-tabela').textContent =
+    'Resultado real de cada mês. Mês em andamento aparece parcial — a comparação com os ' +
+    'meses fechados só fecha no fim do mês.';
+}
+
+function funilGraficos(disp) {
+  funilCharts.forEach(function (c) { c.destroy(); });
+  funilCharts = [];
+  var rot = disp.map(function (m) { return MFULL[m]; });
+  var leads = disp.map(function (m) {
+    return funilValor(FUNIL[m], 'Resultado Real', funilEtapasDe(FUNIL[m])[0]);
+  });
+  var cli   = disp.map(function (m) { return funilValor(FUNIL[m], 'Resultado Real', 'Clientes'); });
+  var conv  = disp.map(function (m) {
+    var v = funilValor(FUNIL[m], 'Resultado Real', 'Conversão Total');
+    return v == null ? null : v * 100;
+  });
+  var fat   = disp.map(function (m) { return funilValor(FUNIL[m], 'Resultado Real', 'Faturamento'); });
+
+  funilCharts.push(new Chart(document.getElementById('funil-graf-vol'), {
+    data: { labels: rot, datasets: [
+      { type:'bar', label:'Leads', data:leads, backgroundColor:'rgba(37,99,235,.55)', borderRadius:3, yAxisID:'y' },
+      { type:'line', label:'Clientes', data:cli, borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.12)',
+        tension:.3, borderWidth:2, pointRadius:3, yAxisID:'y1' }
+    ]},
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:'Leads e clientes por mês' } },
+      scales:{ y:{ position:'left', title:{display:true,text:'Leads'} },
+               y1:{ position:'right', grid:{drawOnChartArea:false}, title:{display:true,text:'Clientes'} } } }
+  }));
+
+  funilCharts.push(new Chart(document.getElementById('funil-graf-conv'), {
+    data: { labels: rot, datasets: [
+      { type:'bar', label:'Faturamento', data:fat, backgroundColor:'rgba(245,158,11,.5)', borderRadius:3, yAxisID:'y' },
+      { type:'line', label:'Conversão total (%)', data:conv, borderColor:'#3b82f6',
+        tension:.3, borderWidth:2, pointRadius:3, yAxisID:'y1' }
+    ]},
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:'Faturamento e conversão total por mês' } },
+      scales:{ y:{ position:'left' },
+               y1:{ position:'right', grid:{drawOnChartArea:false},
+                    ticks:{ callback:function(v){ return v + '%'; } } } } }
+  }));
+}
+
+async function abrirFunil() {
+  /* Tempo real sem martelar a fonte: recarrega se o que está em memória tem
+     mais de um minuto. */
+  if (Date.now() - funilCarregadoEm > 60000) {
+    document.getElementById('funil-sub').textContent = 'Lendo a planilha…';
+    await funilCarregar();
+  }
+  renderFunil();
+}
+
 function switchTab(t, btn) {
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
   document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-' + t).classList.add('active');
   if (t === 'anual') { renderAnual(); renderEvo(); }
+  if (t === 'funil') { abrirFunil(); }
 }
 
 // ════════════════════════════════════════════════════════════
